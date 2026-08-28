@@ -1,0 +1,199 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { requireStaff, requireUser } from "@/lib/auth";
+import { DEFAULT_RACI, type IntakePayload } from "@/lib/types";
+
+function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 48);
+}
+
+export async function signOutAction() {
+  const { supabase } = await requireUser();
+  await supabase.auth.signOut();
+  redirect("/login");
+}
+
+export async function createTenantAction(formData: FormData) {
+  const { supabase, profile } = await requireStaff();
+  if (profile?.role !== "platform_admin") return { error: "Only the platform admin can onboard clients." };
+
+  const name = String(formData.get("name") || "").trim();
+  if (!name) return { error: "Client name is required." };
+  const slug = slugify(name) || `client-${Date.now()}`;
+
+  const { data, error } = await supabase
+    .from("tenants")
+    .insert({ name, slug })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+
+  revalidatePath("/master");
+  return { id: data.id };
+}
+
+export async function inviteUserAction(formData: FormData) {
+  const { supabase, user, profile } = await requireStaff();
+  if (profile?.role !== "platform_admin") return { error: "Only the platform admin can invite users." };
+
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const role = String(formData.get("role") || "client_contributor");
+  const tenantId = String(formData.get("tenant_id") || "") || null;
+
+  if (!email) return { error: "Email is required." };
+  if (role.startsWith("client") && !tenantId) {
+    return { error: "Pick a client company for this invite." };
+  }
+
+  const { error } = await supabase.from("invites").insert({
+    email,
+    role,
+    tenant_id: role.startsWith("client") ? tenantId : null,
+    invited_by: user!.id,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/master");
+  if (tenantId) revalidatePath(`/master/tenants/${tenantId}`);
+  return { ok: true };
+}
+
+export async function createProjectAction(formData: FormData) {
+  const { supabase, user } = await requireStaff();
+  const tenantId = String(formData.get("tenant_id") || "");
+  const name = String(formData.get("name") || "").trim();
+  if (!tenantId || !name) return { error: "Client and project name are required." };
+
+  const { data: project, error } = await supabase
+    .from("projects")
+    .insert({ tenant_id: tenantId, name, created_by: user!.id })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+
+  await supabase.from("intakes").insert({
+    tenant_id: tenantId,
+    project_id: project.id,
+    payload: {},
+  });
+
+  await supabase.from("raci_rows").insert(
+    DEFAULT_RACI.map((row, i) => ({
+      tenant_id: tenantId,
+      project_id: project.id,
+      ...row,
+      sort_order: i,
+    }))
+  );
+
+  revalidatePath("/master");
+  revalidatePath("/portal");
+  return { id: project.id };
+}
+
+export async function saveIntakeAction(projectId: string, payload: IntakePayload) {
+  const { supabase, profile } = await requireUser();
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, status, tenant_id")
+    .eq("id", projectId)
+    .single();
+  if (!project) return { error: "Project not found." };
+  if (project.status !== "draft") return { error: "Intake is locked after submit." };
+  if (profile?.role === "client_viewer") return { error: "Viewers cannot edit intake." };
+
+  const { error } = await supabase
+    .from("intakes")
+    .update({ payload, updated_at: new Date().toISOString() })
+    .eq("project_id", projectId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/portal/projects/${projectId}`);
+  revalidatePath(`/master/projects/${projectId}`);
+  return { ok: true };
+}
+
+export async function submitIntakeAction(projectId: string, payload: IntakePayload) {
+  const { supabase, user, profile } = await requireUser();
+  if (profile?.role === "client_viewer") return { error: "Viewers cannot submit intake." };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, status")
+    .eq("id", projectId)
+    .single();
+  if (!project) return { error: "Project not found." };
+  if (project.status !== "draft") return { error: "This intake is already submitted." };
+
+  const save = await supabase
+    .from("intakes")
+    .update({ payload, updated_at: new Date().toISOString() })
+    .eq("project_id", projectId);
+  if (save.error) return { error: save.error.message };
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+      submitted_by: user!.id,
+    })
+    .eq("id", projectId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/portal");
+  revalidatePath("/master");
+  return { ok: true };
+}
+
+export async function reopenIntakeAction(projectId: string) {
+  const { supabase } = await requireStaff();
+  const { error } = await supabase
+    .from("projects")
+    .update({ status: "draft", submitted_at: null, submitted_by: null })
+    .eq("id", projectId);
+  if (error) return { error: error.message };
+  revalidatePath(`/master/projects/${projectId}`);
+  revalidatePath(`/portal/projects/${projectId}`);
+  return { ok: true };
+}
+
+export async function advanceProjectAction(projectId: string, status: string) {
+  const { supabase } = await requireStaff();
+  const patch: Record<string, unknown> = { status };
+  if (status === "published") patch.published_at = new Date().toISOString();
+  const { error } = await supabase.from("projects").update(patch).eq("id", projectId);
+  if (error) return { error: error.message };
+  revalidatePath(`/master/projects/${projectId}`);
+  revalidatePath(`/portal/projects/${projectId}`);
+  return { ok: true };
+}
+
+export async function saveRaciAction(
+  projectId: string,
+  rows: { id: string; responsible: string; accountable: string; consulted: string; informed: string }[]
+) {
+  const { supabase } = await requireStaff();
+  for (const row of rows) {
+    const { error } = await supabase
+      .from("raci_rows")
+      .update({
+        responsible: row.responsible,
+        accountable: row.accountable,
+        consulted: row.consulted,
+        informed: row.informed,
+      })
+      .eq("id", row.id)
+      .eq("project_id", projectId);
+    if (error) return { error: error.message };
+  }
+  revalidatePath(`/master/projects/${projectId}`);
+  return { ok: true };
+}

@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy: #0a1628;
+  --brand: #1255cc;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-[#F5F7FA] text-navy antialiased;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
