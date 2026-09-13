@@ -1,9 +1,8 @@
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 import LoginForm from "./login-form";
 
 export default function LoginPage() {
-  const configured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
+  const configured = isSupabaseConfigured();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-navy px-4">

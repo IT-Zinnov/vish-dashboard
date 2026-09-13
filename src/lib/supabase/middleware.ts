@@ -1,11 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { getUserAllowingCookieFallback } from "@/lib/supabase/get-user";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = getSupabaseUrl();
+  const key = getSupabaseAnonKey();
   if (!url || !key) return supabaseResponse;
 
   const supabase = createServerClient(url, key, {
@@ -23,44 +25,44 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUserAllowingCookieFallback(supabase);
 
   const path = request.nextUrl.pathname;
   const isPublic = path === "/login" || path.startsWith("/auth");
+  const redirectWithSession = (pathname: string) => {
+    const url = request.nextUrl.clone();
+    url.pathname = pathname;
+    const response = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      response.cookies.set(cookie);
+    });
+    return response;
+  };
 
   if (!user && !isPublic) {
-    const redirect = request.nextUrl.clone();
-    redirect.pathname = "/login";
-    return NextResponse.redirect(redirect);
+    return redirectWithSession("/login");
   }
 
   if (user && path === "/login") {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    const redirect = request.nextUrl.clone();
-    redirect.pathname =
-      profile?.role === "platform_admin" || profile?.role === "team"
-        ? "/master"
-        : "/portal";
-    return NextResponse.redirect(redirect);
+    return redirectWithSession("/dashboard");
   }
 
   if (user && path.startsWith("/master")) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (profile?.role !== "platform_admin" && profile?.role !== "team") {
-      const redirect = request.nextUrl.clone();
-      redirect.pathname = "/portal";
-      return NextResponse.redirect(redirect);
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (
+        profile &&
+        profile.role !== "platform_admin" &&
+        profile.role !== "team"
+      ) {
+        return redirectWithSession("/portal");
+      }
+    } catch {
+      // Network to PostgREST may fail behind a corporate proxy; allow through.
     }
   }
 

@@ -25,6 +25,12 @@ export default async function MasterProjectPage({ params }: { params: Promise<{ 
           ← {tenant?.name || "Client"}
         </a>
         <StatusBadge status={project.status} />
+        <a
+          href={`/dashboard?project=${project.id}`}
+          className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy2"
+        >
+          Open live dashboard
+        </a>
         <TeamActions projectId={project.id} status={project.status} />
       </div>
       <div className="space-y-6">

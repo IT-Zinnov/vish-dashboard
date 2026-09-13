@@ -21,6 +21,12 @@ export function AppShell({
           </div>
         </div>
         <nav className="flex-1 space-y-1 p-3 text-sm">
+          <a
+            className="block rounded-md px-3 py-2 font-medium text-white/75 hover:bg-white/10 hover:text-white"
+            href="/dashboard"
+          >
+            CoE dashboard
+          </a>
           {staff ? (
             <a className="block rounded-md bg-brand px-3 py-2 font-medium" href="/master">
               Clients & projects

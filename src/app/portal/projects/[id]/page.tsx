@@ -28,6 +28,12 @@ export default async function PortalProjectPage({ params }: { params: Promise<{ 
           ← Projects
         </a>
         <StatusBadge status={project.status} />
+        <a
+          href={`/dashboard?project=${project.id}`}
+          className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy2"
+        >
+          Open dashboard
+        </a>
       </div>
       <div className="space-y-6">
         <Card title="Intake form">

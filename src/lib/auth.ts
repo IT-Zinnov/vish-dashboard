@@ -1,24 +1,55 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { getUserAllowingCookieFallback } from "@/lib/supabase/get-user";
 import type { Profile } from "@/lib/types";
 
 export async function getSessionProfile() {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  if (!isSupabaseConfigured()) {
     redirect("/login");
   }
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUserAllowingCookieFallback(supabase);
   if (!user) return { supabase, user: null, profile: null as Profile | null };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id, tenant_id, role, full_name, email")
-    .eq("id", user.id)
-    .maybeSingle();
+  const select = () =>
+    supabase
+      .from("profiles")
+      .select("id, tenant_id, role, full_name, email")
+      .eq("id", user.id)
+      .maybeSingle();
 
-  return { supabase, user, profile: profile as Profile | null };
+  try {
+    const { data: profile, error } = await select();
+    if (error) throw error;
+    if (profile) {
+      return { supabase, user, profile: profile as Profile, profileError: null };
+    }
+
+    // Session is valid but the profile row is missing (account predates the
+    // signup trigger). Create it, then read it back.
+    const { error: rpcError } = await supabase.rpc("ensure_profile");
+    if (rpcError) throw rpcError;
+    const { data: created, error: rereadError } = await select();
+    if (rereadError) throw rereadError;
+    return {
+      supabase,
+      user,
+      profile: created as Profile | null,
+      profileError: null,
+    };
+  } catch (error) {
+    // Distinguish "this account has no profile row" from "the server could not
+    // reach Postgres at all" — behind a TLS-intercepting proxy the second is
+    // far more likely, and telling the user to re-run a migration is wrong.
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      supabase,
+      user,
+      profile: null as Profile | null,
+      profileError: message,
+    };
+  }
 }
 
 export async function requireUser() {
