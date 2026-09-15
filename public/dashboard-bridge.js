@@ -91,7 +91,41 @@
           const text = button.textContent;
           if (/save draft|submit for/i.test(text)) button.style.display = "none";
         });
+      showIntakeLockNotice();
     }
+  }
+
+  function lockReason() {
+    if (!project) {
+      return permissions.staff
+        ? "<b>No project selected.</b> Create a project for a client in the team workspace, then reopen this dashboard from that project."
+        : "<b>No project yet.</b> Your delivery team has not created a project for your company, so there is nothing to fill in yet.";
+    }
+    if (user.role === "client_viewer") {
+      return "<b>View-only access.</b> Your role is client viewer, so you can read this intake but not change it. Ask the platform admin to make you a client contributor.";
+    }
+    if (project.status !== "draft") {
+      return (
+        "<b>Intake locked.</b> This intake is already " +
+        String(project.status).replace("_", " ") +
+        ", so it can no longer be edited. Ask the delivery team to reopen it."
+      );
+    }
+    return "<b>Read-only.</b> You do not have permission to edit this intake.";
+  }
+
+  // Without this, every field is simply disabled with no explanation, which
+  // reads as a broken form rather than a permissions state.
+  function showIntakeLockNotice() {
+    const body = document.querySelector("#pg-intake .pg-body");
+    if (!body || document.getElementById("coe-intake-lock")) return;
+    const notice = document.createElement("div");
+    notice.id = "coe-intake-lock";
+    notice.className = "note";
+    notice.style.cssText =
+      "margin-bottom:16px;border-left:3px solid #F26522;grid-column:1/-1;";
+    notice.innerHTML = lockReason();
+    body.prepend(notice);
   }
 
   function clearDemoDefaults() {
@@ -292,15 +326,24 @@
       });
     }
 
-    document.querySelectorAll(".sb-new-btn").forEach((button) => {
+    // The sidebar CTA and the hero CTA must behave identically. The hero button
+    // is not a .sb-new-btn, so it used to drop straight into a dead form while
+    // the sidebar button correctly bounced to the workspace.
+    const startIntakeButtons = new Set(document.querySelectorAll(".sb-new-btn"));
+    document.querySelectorAll("button").forEach((button) => {
+      if (/start new intake/i.test(button.textContent)) {
+        startIntakeButtons.add(button);
+      }
+    });
+    startIntakeButtons.forEach((button) => {
       button.onclick = null;
       button.addEventListener("click", () => {
-        if (project) {
-          window.nav("intake");
-          window.setStep(1);
-        } else {
+        if (!project) {
           window.parent.location.href = permissions.staff ? "/master" : "/portal";
+          return;
         }
+        window.nav("intake");
+        window.setStep(1);
       });
     });
 
