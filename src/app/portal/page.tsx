@@ -14,8 +14,8 @@ export default async function PortalHome() {
       <AppShell profile={profile} title="Waiting for access">
         <Card title="No client assigned">
           <p className="text-sm text-slate-600">
-            Your login works, but you are not attached to a client yet. Ask the platform admin to invite
-            this email, then sign out and sign in again — or create a new signup after the invite exists.
+            Your login works, but you are not attached to a client yet. Ask the platform admin to attach
+            this email to a client company, then reload this page.
           </p>
         </Card>
       </AppShell>

@@ -1,6 +1,6 @@
 import { requireStaff } from "@/lib/auth";
 import { AppShell, Card, StatusBadge } from "@/components/ui";
-import { CreateTenantForm, InviteForm } from "@/components/admin-forms";
+import { AssignUserForm, CreateTenantForm, InviteForm } from "@/components/admin-forms";
 
 export default async function MasterHome() {
   const { supabase, profile } = await requireStaff();
@@ -21,8 +21,15 @@ export default async function MasterHome() {
         <Card title="Onboard a client">
           <CreateTenantForm />
         </Card>
-        <Card title="Invite users">
+        <Card title="Invite users (no account yet)">
           <InviteForm tenants={tenants || []} />
+        </Card>
+        <Card title="Attach a user who already signed up">
+          <p className="mb-4 text-sm text-slate-500">
+            Use this when someone created their account before you invited them.
+            An invite alone will not move an existing account.
+          </p>
+          <AssignUserForm tenants={tenants || []} />
         </Card>
         <Card title="Clients">
           {!tenants?.length ? (

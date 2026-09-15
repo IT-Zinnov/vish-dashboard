@@ -64,6 +64,41 @@ export async function inviteUserAction(formData: FormData) {
   return { ok: true };
 }
 
+export async function assignUserAction(formData: FormData) {
+  const { supabase, profile } = await requireStaff();
+  if (profile?.role !== "platform_admin") {
+    return { error: "Only the platform admin can assign users." };
+  }
+
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const role = String(formData.get("role") || "client_contributor");
+  const tenantId = String(formData.get("tenant_id") || "") || null;
+
+  if (!email) return { error: "Email is required." };
+  if (role.startsWith("client") && !tenantId) {
+    return { error: "Pick a client company for this user." };
+  }
+
+  const { data, error } = await supabase.rpc("admin_assign_profile", {
+    target_email: email,
+    target_tenant: tenantId,
+    target_role: role,
+  });
+  if (error) {
+    if (/could not find the function|PGRST202/i.test(error.message)) {
+      return {
+        error:
+          "Run supabase/migrations/005_apply_invites_to_existing_users.sql in the Supabase SQL Editor first.",
+      };
+    }
+    return { error: error.message };
+  }
+
+  revalidatePath("/master");
+  if (tenantId) revalidatePath(`/master/tenants/${tenantId}`);
+  return { outcome: (data as { outcome?: string } | null)?.outcome ?? "done" };
+}
+
 export async function createProjectAction(formData: FormData) {
   const { supabase, user } = await requireStaff();
   const tenantId = String(formData.get("tenant_id") || "");
