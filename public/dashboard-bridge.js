@@ -133,17 +133,17 @@
 
     setNavigationLock(
       "ai",
-      !permissions.intelligenceReady,
+      !staff && !permissions.intelligenceReady,
       "Complete and submit the intake to generate Zinnov Intelligence."
     );
     setNavigationLock(
       "dashboard",
-      !permissions.intelligenceReady,
+      !staff && !permissions.intelligenceReady,
       "Complete and submit the intake to generate project metrics."
     );
     setNavigationLock(
       "export",
-      !permissions.intelligenceReady,
+      !staff && !permissions.intelligenceReady,
       "Exports become available after the intake analysis is ready."
     );
     setNavigationLock(
@@ -195,6 +195,7 @@
       let message = "";
       if (
         /ai workplace analysis|visual recommendation dashboard/i.test(title) &&
+        !permissions.staff &&
         !permissions.intelligenceReady
       ) {
         locked = true;
@@ -648,6 +649,12 @@
       bindExportButton(home, /^generate pdf/i, "dashboard_pdf");
       bindExportButton(home, /^intake summary/i, "intake_csv");
       bindExportButton(home, /^raci export/i, "raci_xlsx");
+      const raciExport = Array.from(home.querySelectorAll("button")).find(
+        (button) => /^raci export/i.test(button.textContent)
+      );
+      if (raciExport && !permissions.staff && !permissions.raciPublished) {
+        raciExport.style.display = "none";
+      }
     }
     if (ai) {
       bindExportButton(ai, /^export excel/i, "intelligence_xlsx");
@@ -676,20 +683,28 @@
   function renderExportCenter() {
     const body = document.querySelector("#pg-export .pg-body");
     if (!body) return;
+    const scopeMessage = permissions.staff
+      ? "Exports below use only the selected project. Open another client project to export its data."
+      : "Only your selected project can be exported. Standard demonstration case studies remain available in Repository.";
     body.innerHTML =
       '<div class="card mb3"><div class="card-title">Project exports</div>' +
-      '<p class="sm muted mb3">Files are generated from the selected project and stored privately.</p>' +
+      '<p class="sm muted mb3">' +
+      escapeHtml(scopeMessage) +
+      " Files are stored privately.</p>" +
       '<div class="fc-row gap3" id="coe-export-actions"></div></div>' +
       '<div class="card"><div class="card-title">Export history</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Status</th><th>Created</th><th></th></tr></thead>' +
       '<tbody id="coe-export-history"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></div>';
     const actions = document.getElementById("coe-export-actions");
-    [
+    const exportActions = [
       ["Intake Excel", "intake_xlsx"],
       ["Intelligence PDF", "intelligence_pdf"],
       ["Dashboard PDF", "dashboard_pdf"],
-      ["RACI Excel", "raci_xlsx"],
-    ].forEach(([label, type]) => {
+      ...(permissions.staff || permissions.raciPublished
+        ? [["RACI Excel", "raci_xlsx"]]
+        : []),
+    ];
+    exportActions.forEach(([label, type]) => {
       const button = document.createElement("button");
       button.className = "btn btn-outline btn-sm";
       button.textContent = label;
@@ -762,7 +777,27 @@
     wireExports();
 
     document.querySelectorAll("#pg-ai button").forEach((button) => {
-      if (/approve & send to raci|edit assumptions/i.test(button.textContent)) {
+      if (/edit assumptions/i.test(button.textContent)) {
+        button.style.display = "none";
+      }
+      if (/approve & send to raci/i.test(button.textContent)) {
+        if (!permissions.staff) {
+          button.style.display = "none";
+        } else {
+          button.style.display = "";
+          button.innerHTML =
+            '<i class="ti ti-check"></i> Approve Intelligence &amp; Proceed to RACI';
+          button.onclick = null;
+          button.addEventListener("click", () =>
+            recommendationAction("PATCH", "approve")
+          );
+        }
+      }
+      if (
+        /^send to raci/i.test(button.textContent.trim()) &&
+        !permissions.staff &&
+        !permissions.raciPublished
+      ) {
         button.style.display = "none";
       }
       if (!permissions.staff && /regenerate/i.test(button.textContent)) {
@@ -1069,6 +1104,27 @@
 
   }
 
+  function openInitialView() {
+    const view = context.initialView || "home";
+    if (
+      !permissions.staff &&
+      ["ai", "dashboard", "export"].includes(view) &&
+      !permissions.intelligenceReady
+    ) {
+      window.nav("home");
+      return;
+    }
+    if (
+      !permissions.staff &&
+      view === "raci" &&
+      !permissions.raciPublished
+    ) {
+      window.nav("home");
+      return;
+    }
+    if (view !== "home") window.nav(view);
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     setIdentity();
     wireProfileMenu();
@@ -1081,5 +1137,6 @@
     setProjectContext();
     setVisibility();
     wireActions();
+    openInitialView();
   });
 })();

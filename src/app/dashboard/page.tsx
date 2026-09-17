@@ -3,9 +3,9 @@ import { requireUser } from "@/lib/auth";
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string }>;
+  searchParams: Promise<{ project?: string; view?: string }>;
 }) {
-  const { project } = await searchParams;
+  const { project, view } = await searchParams;
   const { profile, profileError } = await requireUser();
   const staff =
     profile?.role === "platform_admin" || profile?.role === "team";
@@ -44,7 +44,10 @@ export default async function DashboardPage({
       </header>
       <iframe
         title="Corporate Services CoE Hub"
-        src={`/dashboard/prototype${project ? `?project=${encodeURIComponent(project)}` : ""}`}
+        src={`/dashboard/prototype?${new URLSearchParams({
+          ...(project ? { project } : {}),
+          ...(view ? { view } : {}),
+        }).toString()}`}
         className="min-h-0 flex-1 border-0 bg-white"
       />
     </main>

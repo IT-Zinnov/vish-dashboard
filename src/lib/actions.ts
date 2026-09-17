@@ -240,10 +240,63 @@ export async function advanceProjectAction(projectId: string, status: string) {
   return { ok: true };
 }
 
+export async function approveRecommendationAction(projectId: string) {
+  const { supabase, user } = await requireStaff();
+  const { data: recommendation } = await supabase
+    .from("recommendations")
+    .select("id, tenant_id, status")
+    .eq("project_id", projectId)
+    .eq("status", "ready")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!recommendation) {
+    return { error: "No recommendation is waiting for approval." };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("recommendations")
+    .update({
+      status: "approved",
+      approved_by: user!.id,
+      approved_at: now,
+      updated_at: now,
+    })
+    .eq("id", recommendation.id);
+  if (error) return { error: error.message };
+
+  await supabase.from("activity_log").insert({
+    tenant_id: recommendation.tenant_id,
+    project_id: projectId,
+    actor_id: user!.id,
+    event_type: "recommendation.approved",
+    summary: "Zinnov Intelligence approved; RACI assignment can proceed",
+  });
+  revalidatePath(`/master/projects/${projectId}`);
+  revalidatePath(`/dashboard?project=${projectId}`);
+  return { ok: true };
+}
+
 export async function publishRaciAction(projectId: string) {
   const { supabase, user, profile } = await requireStaff();
   if (profile?.role !== "platform_admin") {
     return { error: "Only the platform admin can publish RACI to the client." };
+  }
+
+  const { data: approvedRecommendation } = await supabase
+    .from("recommendations")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "approved")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!approvedRecommendation) {
+    return {
+      error:
+        "Approve the Zinnov Intelligence recommendation before publishing RACI.",
+    };
   }
 
   const { data: rows, error: rowsError } = await supabase
@@ -302,6 +355,19 @@ export async function saveRaciAction(
   }[]
 ) {
   const { supabase } = await requireStaff();
+  const { data: approvedRecommendation } = await supabase
+    .from("recommendations")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "approved")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!approvedRecommendation) {
+    return {
+      error: "Approve Zinnov Intelligence before assigning RACI.",
+    };
+  }
   for (const row of rows) {
     const { error } = await supabase
       .from("raci_rows")

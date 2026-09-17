@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   advanceProjectAction,
+  approveRecommendationAction,
   publishRaciAction,
   reopenIntakeAction,
   saveRaciAction,
@@ -24,10 +25,12 @@ export function TeamActions({
   projectId,
   status,
   canPublish,
+  recommendationStatus,
 }: {
   projectId: string;
   status: string;
   canPublish: boolean;
+  recommendationStatus?: string | null;
 }) {
   const [error, setError] = useState<string | null>(null);
   async function run(fn: () => Promise<{ error?: string }>) {
@@ -42,7 +45,17 @@ export function TeamActions({
           Reopen intake
         </button>
       )}
-      {(status === "submitted" || status === "in_review") && canPublish && (
+      {recommendationStatus === "ready" && (
+        <button
+          className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white"
+          onClick={() => run(() => approveRecommendationAction(projectId))}
+        >
+          Approve Intelligence &amp; proceed to RACI
+        </button>
+      )}
+      {(status === "submitted" || status === "in_review") &&
+        canPublish &&
+        recommendationStatus === "approved" && (
         <button className="rounded-lg bg-navy px-3 py-1.5 text-xs text-white" onClick={() => run(() => publishRaciAction(projectId))}>
           Publish RACI &amp; plan
         </button>

@@ -36,6 +36,19 @@ export async function GET(request: NextRequest) {
   const role = profile?.role as AppRole | undefined;
   const staff = role === "platform_admin" || role === "team";
   const requestedProject = request.nextUrl.searchParams.get("project");
+  const requestedView = request.nextUrl.searchParams.get("view");
+  const initialView = [
+    "home",
+    "intake",
+    "ai",
+    "dashboard",
+    "raci",
+    "export",
+    "exec",
+    "repo",
+  ].includes(requestedView || "")
+    ? requestedView
+    : "home";
   let projectQuery = supabase
     .from("projects")
     .select(
@@ -163,13 +176,12 @@ export async function GET(request: NextRequest) {
     (item) => item.status === "draft"
   ).length;
   const intelligenceReady = Boolean(recommendation);
-  const raciPublished =
-    staff ||
-    Boolean(
-      project?.raci_published_at &&
-        project &&
-        ["published", "execution"].includes(project.status)
-    );
+  const raciPublished = Boolean(
+    project?.raci_published_at &&
+      project &&
+      ["published", "execution"].includes(project.status)
+  );
+  const canViewRaci = staff || raciPublished;
   const context = {
     user: profile
       ? {
@@ -182,14 +194,16 @@ export async function GET(request: NextRequest) {
     tenant,
     project,
     intake: intake?.payload ?? {},
+    initialView,
     recommendation,
-    raci: raciPublished ? projectRaci || [] : [],
+    raci: canViewRaci ? projectRaci || [] : [],
     permissions: {
       staff,
       canEdit,
       canSubmit: canEdit,
       intelligenceReady,
       raciPublished,
+      canViewRaci,
     },
     portfolio: {
       projects: portfolioProjects || [],
