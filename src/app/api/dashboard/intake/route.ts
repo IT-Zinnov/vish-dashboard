@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserAllowingCookieFallback } from "@/lib/supabase/get-user";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { generateAndStoreRecommendation } from "@/lib/recommendation-service";
 import type { AppRole, IntakePayload } from "@/lib/types";
 
 const INTAKE_KEYS = [
@@ -125,6 +127,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Recommendation service is not configured.",
+      },
+      { status: 503 }
+    );
+  }
+
   const payload = cleanPayload(body.payload);
   const saved = await access.supabase
     .from("intakes")
@@ -134,7 +151,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: saved.error.message }, { status: 400 });
   }
 
-  const { error } = await access.supabase
+  const { error } = await admin
     .from("projects")
     .update({
       status: "submitted",
@@ -146,13 +163,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  await access.supabase.from("activity_log").insert({
-    tenant_id: access.project.tenant_id,
-    project_id: projectId,
-    actor_id: access.user.id,
-    event_type: "intake.submitted",
-    summary: "Client intake submitted for delivery-team review",
-  });
+  try {
+    const recommendation = await generateAndStoreRecommendation({
+      projectId,
+      actorId: access.user.id,
+      payload,
+    });
 
-  return NextResponse.json({ ok: true, status: "submitted" });
+    return NextResponse.json({
+      ok: true,
+      status: "in_review",
+      recommendation,
+    });
+  } catch (recommendationError) {
+    return NextResponse.json(
+      {
+        error:
+          recommendationError instanceof Error
+            ? recommendationError.message
+            : "The intake was saved, but analysis generation failed.",
+      },
+      { status: 500 }
+    );
+  }
 }

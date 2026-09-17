@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireStaff, requireUser } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { generateAndStoreRecommendation } from "@/lib/recommendation-service";
 import { DEFAULT_RACI, type IntakePayload } from "@/lib/types";
 
 function slugify(name: string) {
@@ -158,6 +160,17 @@ export async function saveIntakeAction(projectId: string, payload: IntakePayload
 export async function submitIntakeAction(projectId: string, payload: IntakePayload) {
   const { supabase, user, profile } = await requireUser();
   if (profile?.role === "client_viewer") return { error: "Viewers cannot submit intake." };
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Recommendation service is not configured.",
+    };
+  }
 
   const { data: project } = await supabase
     .from("projects")
@@ -173,7 +186,7 @@ export async function submitIntakeAction(projectId: string, payload: IntakePaylo
     .eq("project_id", projectId);
   if (save.error) return { error: save.error.message };
 
-  const { error } = await supabase
+  const { error } = await admin
     .from("projects")
     .update({
       status: "submitted",
@@ -183,9 +196,25 @@ export async function submitIntakeAction(projectId: string, payload: IntakePaylo
     .eq("id", projectId);
   if (error) return { error: error.message };
 
+  try {
+    await generateAndStoreRecommendation({
+      projectId,
+      actorId: user!.id,
+      payload,
+    });
+  } catch (recommendationError) {
+    return {
+      error:
+        recommendationError instanceof Error
+          ? recommendationError.message
+          : "The intake was saved, but analysis generation failed.",
+    };
+  }
+
   revalidatePath("/portal");
   revalidatePath("/master");
-  return { ok: true };
+  revalidatePath(`/dashboard?project=${projectId}`);
+  return { ok: true, status: "in_review" };
 }
 
 export async function reopenIntakeAction(projectId: string) {
@@ -211,9 +240,66 @@ export async function advanceProjectAction(projectId: string, status: string) {
   return { ok: true };
 }
 
+export async function publishRaciAction(projectId: string) {
+  const { supabase, user, profile } = await requireStaff();
+  if (profile?.role !== "platform_admin") {
+    return { error: "Only the platform admin can publish RACI to the client." };
+  }
+
+  const { data: rows, error: rowsError } = await supabase
+    .from("raci_rows")
+    .select("responsible, accountable")
+    .eq("project_id", projectId);
+  if (rowsError) return { error: rowsError.message };
+  if (
+    !rows?.length ||
+    rows.some((row) => !row.responsible?.trim() || !row.accountable?.trim())
+  ) {
+    return {
+      error:
+        "Assign both Responsible and Accountable for every workstream before publishing.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const { data: project, error } = await supabase
+    .from("projects")
+    .update({
+      status: "published",
+      published_at: now,
+      raci_published_at: now,
+      raci_published_by: user!.id,
+    })
+    .eq("id", projectId)
+    .select("tenant_id")
+    .single();
+  if (error) return { error: error.message };
+
+  await supabase.from("activity_log").insert({
+    tenant_id: project.tenant_id,
+    project_id: projectId,
+    actor_id: user!.id,
+    event_type: "raci.published",
+    summary: "RACI assignments and delivery plan published to the client",
+  });
+
+  revalidatePath(`/master/projects/${projectId}`);
+  revalidatePath(`/portal/projects/${projectId}`);
+  revalidatePath(`/dashboard?project=${projectId}`);
+  return { ok: true };
+}
+
 export async function saveRaciAction(
   projectId: string,
-  rows: { id: string; responsible: string; accountable: string; consulted: string; informed: string }[]
+  rows: {
+    id: string;
+    responsible: string;
+    accountable: string;
+    consulted: string;
+    informed: string;
+    dueDate?: string;
+    status?: string;
+  }[]
 ) {
   const { supabase } = await requireStaff();
   for (const row of rows) {
@@ -224,6 +310,8 @@ export async function saveRaciAction(
         accountable: row.accountable,
         consulted: row.consulted,
         informed: row.informed,
+        due_date: row.dueDate || null,
+        status: row.status || "unassigned",
       })
       .eq("id", row.id)
       .eq("project_id", projectId);

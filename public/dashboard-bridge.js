@@ -6,6 +6,7 @@
   const project = context.project;
   const intake = context.intake || {};
   const permissions = context.permissions || {};
+  let recommendation = context.recommendation || null;
 
   function controlForLabel(text) {
     const label = Array.from(document.querySelectorAll("#pg-intake label")).find(
@@ -19,6 +20,12 @@
   function setControl(control, value) {
     if (!control || value === undefined || value === null || value === "") return;
     control.value = String(value);
+  }
+
+  function escapeHtml(value) {
+    const node = document.createElement("div");
+    node.textContent = String(value ?? "");
+    return node.innerHTML;
   }
 
   function initials(name) {
@@ -50,24 +57,101 @@
     if (role) role.textContent = roleLabel(user.role);
   }
 
+  function wireProfileMenu() {
+    const trigger = document.querySelector(".tn-user");
+    if (!trigger) return;
+    trigger.style.position = "relative";
+    trigger.style.cursor = "pointer";
+    trigger.setAttribute("role", "button");
+    trigger.setAttribute("aria-expanded", "false");
+
+    const menu = document.createElement("div");
+    menu.style.cssText =
+      "display:none;position:absolute;right:0;top:calc(100% + 8px);min-width:210px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 30px rgba(11,31,58,.18);padding:8px;z-index:1000;color:var(--text);";
+    menu.innerHTML =
+      '<div style="padding:8px 10px;border-bottom:1px solid var(--border);margin-bottom:4px;">' +
+      '<div class="sm semi">' +
+      escapeHtml(user.name || user.email || "Signed in") +
+      '</div><div class="xs muted">' +
+      escapeHtml(user.email || roleLabel(user.role)) +
+      "</div></div>" +
+      '<button type="button" id="coe-profile-signout" style="display:flex;width:100%;align-items:center;gap:8px;border:0;background:transparent;padding:9px 10px;border-radius:7px;cursor:pointer;color:var(--red);"><i class="ti ti-logout"></i> Sign out</button>';
+    trigger.appendChild(menu);
+
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = menu.style.display !== "none";
+      menu.style.display = open ? "none" : "block";
+      trigger.setAttribute("aria-expanded", String(!open));
+    });
+    document.addEventListener("click", () => {
+      menu.style.display = "none";
+      trigger.setAttribute("aria-expanded", "false");
+    });
+    menu.querySelector("#coe-profile-signout")?.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const response = await fetch("/api/auth/signout", { method: "POST" });
+      if (response.ok) window.parent.location.href = "/login";
+      else window.toast("Unable to sign out. Please try again.", "err");
+    });
+  }
+
+  function wireNotifications() {
+    const bell = document.querySelector(".tn-action");
+    if (!bell) return;
+    const activity = context.portfolio?.activity || [];
+    const dot = bell.querySelector(".tn-notif-dot");
+    if (dot && !activity.length) dot.style.display = "none";
+    bell.onclick = null;
+    bell.addEventListener("click", () => {
+      window.nav("home");
+      const title = Array.from(
+        document.querySelectorAll("#pg-home .card-title")
+      ).find((element) => element.textContent.trim().startsWith("Recent Activity"));
+      title?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.toast(
+        activity.length
+          ? activity.length + " recent activity update" + (activity.length === 1 ? "" : "s")
+          : "No recent activity",
+        "info"
+      );
+    });
+  }
+
   function setVisibility() {
     const staff = Boolean(permissions.staff);
-    const published =
-      project && ["published", "execution"].includes(project.status);
-    const hiddenForClients = ["admin", "pricing", "export", "raci", "exec"];
+    const hiddenForClients = ["admin", "pricing"];
 
     if (!staff) {
       hiddenForClients.forEach((id) => {
         const item = document.getElementById("sb-" + id);
         if (item) item.style.display = "none";
       });
-      if (!published) {
-        ["ai", "dashboard"].forEach((id) => {
-          const item = document.getElementById("sb-" + id);
-          if (item) item.style.display = "none";
-        });
-      }
+      const exec = document.getElementById("sb-exec");
+      if (exec && project?.status !== "execution") exec.style.display = "none";
     }
+
+    setNavigationLock(
+      "ai",
+      !permissions.intelligenceReady,
+      "Complete and submit the intake to generate Zinnov Intelligence."
+    );
+    setNavigationLock(
+      "dashboard",
+      !permissions.intelligenceReady,
+      "Complete and submit the intake to generate project metrics."
+    );
+    setNavigationLock(
+      "export",
+      !permissions.intelligenceReady,
+      "Exports become available after the intake analysis is ready."
+    );
+    setNavigationLock(
+      "raci",
+      !permissions.raciPublished && !staff,
+      "RACI will unlock after the delivery team publishes assignments."
+    );
+    setWorkflowCardAccess();
 
     document.querySelectorAll(".sb-divider").forEach((divider) => {
       const previous = divider.previousElementSibling;
@@ -92,6 +176,83 @@
           if (/save draft|submit for/i.test(text)) button.style.display = "none";
         });
       showIntakeLockNotice();
+    }
+  }
+
+  function setWorkflowCardAccess() {
+    document.querySelectorAll("#pg-home .wf-card").forEach((card) => {
+      const title = card.querySelector(".wf-title")?.textContent || "";
+      if (
+        !permissions.staff &&
+        (/pricing model|admin settings/i.test(title) ||
+          (/execution plan/i.test(title) && project?.status !== "execution"))
+      ) {
+        card.style.display = "none";
+        return;
+      }
+
+      let locked = false;
+      let message = "";
+      if (
+        /ai workplace analysis|visual recommendation dashboard/i.test(title) &&
+        !permissions.intelligenceReady
+      ) {
+        locked = true;
+        message = "Complete and submit the intake to unlock this analysis.";
+      }
+      if (/raci assignment center/i.test(title) && !permissions.raciPublished) {
+        locked = !permissions.staff;
+        message = "RACI unlocks after the platform admin publishes assignments.";
+      }
+      card.dataset.locked = locked ? "true" : "false";
+      card.dataset.lockMessage = message;
+      card.style.opacity = locked ? "0.55" : "";
+      card.style.cursor = locked ? "not-allowed" : "";
+      if (!card.dataset.lockWired) {
+        card.dataset.lockWired = "true";
+        card.addEventListener(
+          "click",
+          (event) => {
+            if (card.dataset.locked !== "true") return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            window.toast(card.dataset.lockMessage, "info");
+          },
+          true
+        );
+      }
+    });
+  }
+
+  function setNavigationLock(id, locked, message) {
+    const item = document.getElementById("sb-" + id);
+    if (!item) return;
+    item.dataset.locked = locked ? "true" : "false";
+    item.dataset.lockMessage = message;
+    item.setAttribute("aria-disabled", locked ? "true" : "false");
+    item.style.opacity = locked ? "0.55" : "";
+    item.style.cursor = locked ? "not-allowed" : "";
+
+    if (locked && !item.querySelector(".coe-nav-lock")) {
+      const lock = document.createElement("i");
+      lock.className = "ti ti-lock coe-nav-lock";
+      lock.style.cssText = "margin-left:auto;font-size:12px;";
+      item.appendChild(lock);
+    }
+    if (!locked) item.querySelector(".coe-nav-lock")?.remove();
+
+    if (!item.dataset.lockWired) {
+      item.dataset.lockWired = "true";
+      item.addEventListener(
+        "click",
+        (event) => {
+          if (item.dataset.locked !== "true") return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          window.toast(item.dataset.lockMessage, "info");
+        },
+        true
+      );
     }
   }
 
@@ -136,6 +297,10 @@
     if (org) org.value = "";
     const devices = document.getElementById("itDevices");
     if (devices) devices.value = "";
+    const kickoff = document.getElementById("dtKickoff");
+    if (kickoff) kickoff.value = "";
+    const goLive = document.getElementById("dtGolive");
+    if (goLive) goLive.value = "";
   }
 
   function hydrateIntake() {
@@ -226,6 +391,133 @@
     };
   }
 
+  function startProcessingAnimation() {
+    const overlay = document.getElementById("procOverlay");
+    const steps = ["ps1", "ps2", "ps3", "ps4"];
+    steps.forEach((id) => document.getElementById(id)?.classList.remove("on"));
+    overlay?.classList.add("open");
+    steps.forEach((id, index) => {
+      window.setTimeout(
+        () => document.getElementById(id)?.classList.add("on"),
+        250 + index * 750
+      );
+    });
+    return Date.now();
+  }
+
+  async function finishProcessingAnimation(startedAt) {
+    const minimumDuration = 3000;
+    const remaining = minimumDuration - (Date.now() - startedAt);
+    if (remaining > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, remaining));
+    }
+    document.getElementById("procOverlay")?.classList.remove("open");
+  }
+
+  function setText(id, value) {
+    const element = document.getElementById(id);
+    if (element && value !== undefined && value !== null) {
+      element.textContent =
+        typeof value === "number" ? value.toLocaleString("en-IN") : String(value);
+    }
+  }
+
+  function renderPersistedRecommendation() {
+    if (!recommendation?.output) return;
+    const output = recommendation.output;
+    const workplace = output.workplace || {};
+    const infrastructure = output.infrastructure || {};
+    const basis = output.basis || {};
+    const schedule = output.schedule || {};
+    const tenantName = context.tenant?.name || intake.org || "Client";
+    const projectName = project?.name || "Project";
+
+    const heading = document.querySelector("#pg-ai h2");
+    if (heading) {
+      heading.textContent =
+        "Zinnov Intelligence Analysis — " +
+        tenantName +
+        " · " +
+        projectName +
+        " · HC: " +
+        (basis.headcount || 0).toLocaleString("en-IN") +
+        " → " +
+        (basis.month24Headcount || basis.headcount || 0).toLocaleString("en-IN");
+    }
+
+    setText("aiKpiWs", workplace.workstations);
+    setText("aiKpiRooms", workplace.meetingRooms);
+    setText("aiKpiRoomsSub", (workplace.meetingSeats || 0) + " meeting seats");
+    setText("aiKpiCollab", workplace.collaborationSeats);
+    setText("aiKpiCafe", workplace.cafeSeats);
+    setText("kpiHC1", basis.headcount);
+    setText("kpiHC24", basis.month24Headcount);
+    setText("kpiArea", workplace.dayOneAreaSqft);
+    setText("kpiDev", infrastructure.devices);
+    setText("kpiGolive", schedule.goLive || "To confirm");
+    setText("kpiKick", schedule.kickoff ? "from " + schedule.kickoff + " kick-off" : "Kick-off to confirm");
+
+    const riskTable = document.getElementById("aiRiskTable");
+    if (riskTable) {
+      const risks = output.risks || [];
+      riskTable.innerHTML = risks.length
+        ? risks
+            .map(
+              (risk) =>
+                "<tr><td>" +
+                escapeHtml(risk) +
+                '</td><td>Planning</td><td><span class="badge bg-orange">Review</span></td><td>Confirm with the delivery team.</td></tr>'
+            )
+            .join("")
+        : '<tr><td colspan="4">No material gaps identified from the submitted intake.</td></tr>';
+    }
+  }
+
+  function installRecommendationRenderers() {
+    const prototypeRenderAI = window.renderAI;
+    if (typeof prototypeRenderAI === "function") {
+      window.renderAI = function () {
+        prototypeRenderAI();
+        renderPersistedRecommendation();
+      };
+    }
+    const prototypeRenderDashboard = window.renderDashboard;
+    if (typeof prototypeRenderDashboard === "function") {
+      window.renderDashboard = function () {
+        prototypeRenderDashboard();
+        renderPersistedRecommendation();
+      };
+    }
+  }
+
+  function installLazyRepository() {
+    const prototypeNav = window.nav;
+    if (typeof prototypeNav !== "function") return;
+    let loading = null;
+    const loadAssets = () => {
+      if (window.__REPO) return Promise.resolve();
+      if (loading) return loading;
+      loading = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "/repo-assets.js";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Repository assets failed to load."));
+        document.body.appendChild(script);
+      });
+      return loading;
+    };
+
+    window.nav = function (id) {
+      if (id !== "repo") return prototypeNav(id);
+      window.toast("Loading repository…", "info");
+      return loadAssets()
+        .then(() => prototypeNav(id))
+        .catch((error) =>
+          window.toast(error.message || "Repository is unavailable.", "err")
+        );
+    };
+  }
+
   async function persist(method) {
     if (!project) throw new Error("Create or select a client project first.");
     if (!permissions.canEdit) throw new Error("This intake is view-only.");
@@ -255,20 +547,21 @@
   }
 
   async function submit() {
+    const animationStarted = startProcessingAnimation();
     try {
-      await persist("POST");
+      const result = await persist("POST");
+      recommendation = result.recommendation || recommendation;
+      context.recommendation = recommendation;
       permissions.canEdit = false;
       permissions.canSubmit = false;
-      project.status = "submitted";
-      window.toast("Intake submitted to the delivery team.", "ok");
+      permissions.intelligenceReady = Boolean(recommendation);
+      project.status = result.status || "in_review";
+      await finishProcessingAnimation(animationStarted);
+      window.toast("Intake submitted and Zinnov Intelligence is ready.", "ok");
       setVisibility();
-      if (permissions.staff) {
-        if (typeof window.renderAI === "function") window.renderAI();
-        window.nav("ai");
-      } else {
-        window.nav("home");
-      }
+      window.nav("ai");
     } catch (error) {
+      await finishProcessingAnimation(animationStarted);
       window.toast(error.message || "Unable to submit intake.", "err");
     }
   }
@@ -300,14 +593,182 @@
     }
   }
 
+  async function requestExport(exportType, button) {
+    if (!project) {
+      window.toast("Select a project before exporting.", "err");
+      return;
+    }
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Generating…";
+    try {
+      const response = await fetch("/api/dashboard/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, exportType }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Export failed.");
+      const link = document.createElement("a");
+      link.href = result.downloadUrl;
+      link.download = result.fileName || "zinnov-export";
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.toast("Export generated and downloaded.", "ok");
+      await renderExportHistory();
+    } catch (error) {
+      window.toast(error.message || "Export failed.", "err");
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  function bindExportButton(scope, pattern, exportType) {
+    const button = Array.from(scope.querySelectorAll("button")).find(
+      (candidate) =>
+        !candidate.dataset.exportWired && pattern.test(candidate.textContent)
+    );
+    if (!button) return;
+    button.dataset.exportWired = "true";
+    button.onclick = null;
+    button.addEventListener("click", () => requestExport(exportType, button));
+  }
+
+  function wireExports() {
+    const home = document.getElementById("pg-home");
+    const ai = document.getElementById("pg-ai");
+    const dashboard = document.getElementById("pg-dashboard");
+    const raci = document.getElementById("pg-raci");
+
+    if (home) {
+      bindExportButton(home, /^export excel/i, "intake_xlsx");
+      bindExportButton(home, /^generate pdf/i, "dashboard_pdf");
+      bindExportButton(home, /^intake summary/i, "intake_csv");
+      bindExportButton(home, /^raci export/i, "raci_xlsx");
+    }
+    if (ai) {
+      bindExportButton(ai, /^export excel/i, "intelligence_xlsx");
+      bindExportButton(ai, /^download pdf/i, "intelligence_pdf");
+    }
+    if (dashboard) {
+      bindExportButton(dashboard, /^export excel/i, "dashboard_xlsx");
+      bindExportButton(dashboard, /^generate pdf/i, "dashboard_pdf");
+    }
+    if (raci) bindExportButton(raci, /^export raci/i, "raci_xlsx");
+
+    renderExportCenter();
+
+    document.querySelectorAll("button").forEach((button) => {
+      if (
+        !button.dataset.exportWired &&
+        /export|download.*pdf|generate pdf|download deck|bulk export|download inclusions|standard pdf/i.test(
+          button.textContent
+        )
+      ) {
+        button.style.display = "none";
+      }
+    });
+  }
+
+  function renderExportCenter() {
+    const body = document.querySelector("#pg-export .pg-body");
+    if (!body) return;
+    body.innerHTML =
+      '<div class="card mb3"><div class="card-title">Project exports</div>' +
+      '<p class="sm muted mb3">Files are generated from the selected project and stored privately.</p>' +
+      '<div class="fc-row gap3" id="coe-export-actions"></div></div>' +
+      '<div class="card"><div class="card-title">Export history</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Status</th><th>Created</th><th></th></tr></thead>' +
+      '<tbody id="coe-export-history"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></div>';
+    const actions = document.getElementById("coe-export-actions");
+    [
+      ["Intake Excel", "intake_xlsx"],
+      ["Intelligence PDF", "intelligence_pdf"],
+      ["Dashboard PDF", "dashboard_pdf"],
+      ["RACI Excel", "raci_xlsx"],
+    ].forEach(([label, type]) => {
+      const button = document.createElement("button");
+      button.className = "btn btn-outline btn-sm";
+      button.textContent = label;
+      button.dataset.exportWired = "true";
+      button.addEventListener("click", () => requestExport(type, button));
+      actions.appendChild(button);
+    });
+    renderExportHistory();
+  }
+
+  async function renderExportHistory() {
+    const tableBody = document.getElementById("coe-export-history");
+    if (!tableBody || !project) return;
+    try {
+      const response = await fetch(
+        "/api/dashboard/export?projectId=" + encodeURIComponent(project.id)
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to load exports.");
+      tableBody.innerHTML = "";
+      const items = result.exports || [];
+      if (!items.length) {
+        const row = tableBody.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 5;
+        cell.textContent = "No exports generated yet.";
+        return;
+      }
+      items.forEach((item) => {
+        const row = tableBody.insertRow();
+        [item.file_name || "Export", item.export_type.replace(/_/g, " "), item.status, relativeTime(item.created_at)].forEach(
+          (text) => (row.insertCell().textContent = text)
+        );
+        const action = row.insertCell();
+        if (item.status === "ready") {
+          const button = document.createElement("button");
+          button.className = "btn btn-ghost btn-sm";
+          button.textContent = "Download";
+          button.addEventListener("click", async () => {
+            const response = await fetch(
+              "/api/dashboard/export?projectId=" +
+                encodeURIComponent(project.id) +
+                "&exportId=" +
+                encodeURIComponent(item.id)
+            );
+            const result = await response.json();
+            if (response.ok) window.open(result.downloadUrl, "_blank");
+            else window.toast(result.error || "Download failed.", "err");
+          });
+          action.appendChild(button);
+        }
+      });
+    } catch (error) {
+      tableBody.innerHTML =
+        '<tr><td colspan="5">' +
+        escapeHtml(error.message || "Unable to load exports.") +
+        "</td></tr>";
+    }
+  }
+
   function wireActions() {
     document.querySelectorAll("button").forEach((button) => {
       if (/save draft/i.test(button.textContent)) {
+        button.dataset.realAction = "true";
         button.onclick = null;
         button.addEventListener("click", saveDraft);
       }
     });
     window.submitIntake = submit;
+    wireExports();
+
+    document.querySelectorAll("#pg-ai button").forEach((button) => {
+      if (/approve & send to raci|edit assumptions/i.test(button.textContent)) {
+        button.style.display = "none";
+      }
+      if (!permissions.staff && /regenerate/i.test(button.textContent)) {
+        button.style.display = "none";
+      }
+    });
 
     if (permissions.staff) {
       document.querySelectorAll("button").forEach((button) => {
@@ -315,12 +776,6 @@
           button.onclick = null;
           button.addEventListener("click", () =>
             recommendationAction("POST", "regenerate")
-          );
-        }
-        if (/approve & send to raci/i.test(button.textContent)) {
-          button.onclick = null;
-          button.addEventListener("click", () =>
-            recommendationAction("PATCH", "approve")
           );
         }
       });
@@ -350,7 +805,6 @@
     if (permissions.staff) {
       const destinations = {
         "sb-admin": "/master",
-        "sb-raci": project ? "/master/projects/" + project.id : "/master",
       };
       Object.entries(destinations).forEach(([id, destination]) => {
         const element = document.getElementById(id);
@@ -361,6 +815,84 @@
         });
       });
     }
+
+    document.querySelectorAll("button").forEach((button) => {
+      if (
+        !button.dataset.realAction &&
+        !button.dataset.exportWired &&
+        /save|update defaults/i.test(button.textContent)
+      ) {
+        button.style.display = "none";
+      }
+    });
+  }
+
+  function renderRaci() {
+    const page = document.getElementById("pg-raci");
+    const tableBody = page?.querySelector("tbody");
+    if (!page || !tableBody) return;
+
+    const tenantName = context.tenant?.name || "Client";
+    const subtitle = page.querySelector(".pg-hd-l p");
+    if (subtitle) {
+      subtitle.textContent =
+        "Client: " +
+        tenantName +
+        " · Project: " +
+        (project?.name || "No project") +
+        " · " +
+        (permissions.raciPublished ? "Published" : "Draft");
+    }
+
+    tableBody.innerHTML = "";
+    const rows = context.raci || [];
+    if (!rows.length) {
+      const row = tableBody.insertRow();
+      const cell = row.insertCell();
+      cell.colSpan = 8;
+      cell.textContent = permissions.raciPublished
+        ? "No RACI assignments have been added."
+        : "RACI is being prepared by the delivery team.";
+      cell.style.cssText = "padding:18px;text-align:center;color:var(--muted);";
+    } else {
+      rows.forEach((item) => {
+        const row = tableBody.insertRow();
+        [
+          item.workstream,
+          item.responsible || "—",
+          item.accountable || "—",
+          item.consulted || "—",
+          item.informed || "—",
+          item.due_date || "—",
+          String(item.status || "unassigned").replace("_", " "),
+        ].forEach((value, index) => {
+          const cell = row.insertCell();
+          cell.textContent = value;
+          if (index === 0) cell.style.fontWeight = "700";
+        });
+        row.insertCell().textContent = "";
+      });
+    }
+
+    page.querySelectorAll("button").forEach((button) => {
+      if (
+        /auto assign|notify owners|save assignments|send notifications|lock raci/i.test(
+          button.textContent
+        )
+      ) {
+        button.style.display = "none";
+      }
+      if (/edit raci matrix/i.test(button.textContent)) {
+        if (!permissions.staff) {
+          button.style.display = "none";
+        } else {
+          button.onclick = null;
+          button.addEventListener("click", () => {
+            window.parent.location.href = "/master/projects/" + project.id;
+          });
+        }
+      }
+    });
   }
 
   function showNoProjectNotice() {
@@ -383,13 +915,23 @@
       stats[0].textContent = String(summary.activeIntakes || 0);
       stats[1].textContent = String(summary.recommendations || 0);
       stats[2].textContent = String(summary.openRaci || 0);
-      stats[3].textContent = String((portfolio.projects || []).length);
-      stats[4].textContent = "0";
+      stats[3].textContent = String(summary.repositoryProjects || 0);
+      stats[4].textContent = String(summary.exportsGenerated || 0);
     }
     const statNotes = document.querySelectorAll("#pg-home .stat-s");
-    if (statNotes[2]) {
+    if (statNotes[0])
+      statNotes[0].textContent =
+        String(summary.awaitingInputs || 0) + " awaiting inputs";
+    if (statNotes[1])
+      statNotes[1].textContent =
+        String(summary.readyForReview || 0) + " ready for review";
+    if (statNotes[2])
       statNotes[2].textContent = String(summary.overdueRaci || 0) + " overdue";
-    }
+    if (statNotes[3])
+      statNotes[3].textContent =
+        String(summary.repositoryProjects || 0) + " published case studies";
+    if (statNotes[4]) statNotes[4].textContent = "available downloads";
+    renderActivity(portfolio.activity || []);
 
     const heading = Array.from(
       document.querySelectorAll("#pg-home .fcb > div")
@@ -411,7 +953,22 @@
     projects.forEach((item) => {
       const row = table.insertRow();
       const tenantName = item.tenants?.name || context.tenant?.name || "Client";
-      [tenantName, "—", "—", item.status.replace("_", " "), "—", "—"].forEach(
+      const intakeRecord = Array.isArray(item.intakes)
+        ? item.intakes[0]
+        : item.intakes;
+      const payload = intakeRecord?.payload || {};
+      const headcount =
+        payload.hc1 || payload.hc24
+          ? String(payload.hc1 || 0) + " → " + String(payload.hc24 || payload.hc1 || 0)
+          : "—";
+      [
+        tenantName,
+        payload.city || "—",
+        headcount,
+        item.status.replace("_", " "),
+        relativeTime(intakeRecord?.updated_at || item.created_at),
+        "—",
+      ].forEach(
         (text, index) => {
           const cell = row.insertCell();
           cell.textContent = text;
@@ -426,6 +983,68 @@
         window.parent.location.href = "/dashboard?project=" + item.id;
       });
       action.appendChild(button);
+    });
+
+  }
+
+  function relativeTime(value) {
+    if (!value) return "—";
+    const elapsed = Date.now() - new Date(value).getTime();
+    if (!Number.isFinite(elapsed) || elapsed < 0) return "Just now";
+    const minutes = Math.floor(elapsed / 60000);
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return minutes + " min ago";
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + " hr" + (hours === 1 ? "" : "s") + " ago";
+    const days = Math.floor(hours / 24);
+    return days + " day" + (days === 1 ? "" : "s") + " ago";
+  }
+
+  function renderActivity(items) {
+    const title = Array.from(document.querySelectorAll("#pg-home .card-title")).find(
+      (element) => element.textContent.trim().startsWith("Recent Activity")
+    );
+    const card = title?.parentElement;
+    if (!card) return;
+    card.querySelectorAll(".act-item").forEach((item) => item.remove());
+
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "act-item";
+      empty.textContent = "No activity yet.";
+      empty.style.color = "var(--muted)";
+      card.appendChild(empty);
+      return;
+    }
+
+    const iconByEvent = {
+      "intake.submitted": ["ti-clipboard-check", "act-blue"],
+      "recommendation.generated": ["ti-sparkles", "act-green"],
+      "raci.published": ["ti-sitemap", "act-orange"],
+      "export.generated": ["ti-download", "act-blue"],
+    };
+    items.forEach((item) => {
+      const [icon, color] = iconByEvent[item.event_type] || [
+        "ti-activity",
+        "act-gray",
+      ];
+      const row = document.createElement("div");
+      row.className = "act-item";
+      const projectName = Array.isArray(item.projects)
+        ? item.projects[0]?.name
+        : item.projects?.name;
+      row.innerHTML =
+        '<div class="act-ic ' +
+        color +
+        '"><i class="ti ' +
+        icon +
+        '"></i></div><div><div class="act-txt">' +
+        escapeHtml(item.summary) +
+        (projectName ? " for <b>" + escapeHtml(projectName) + "</b>" : "") +
+        '</div><div class="act-time">' +
+        relativeTime(item.created_at) +
+        "</div></div>";
+      card.appendChild(row);
     });
   }
 
@@ -452,7 +1071,13 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     setIdentity();
+    wireProfileMenu();
+    wireNotifications();
     hydrateIntake();
+    installRecommendationRenderers();
+    installLazyRepository();
+    renderPersistedRecommendation();
+    renderRaci();
     setProjectContext();
     setVisibility();
     wireActions();

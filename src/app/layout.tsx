@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Vish Dashboard — CoE Hub",
+  title: "Zinnov Dashboard — CoE Hub",
   description: "Multi-tenant GCC / workplace planning hub",
 };
 

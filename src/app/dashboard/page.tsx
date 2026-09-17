@@ -14,7 +14,7 @@ export default async function DashboardPage({
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-navy">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-white/10 bg-navy px-4 text-white">
-        <div className="text-xs font-semibold">Vish Dashboard</div>
+        <div className="text-xs font-semibold">Zinnov Dashboard</div>
         <div className="h-4 w-px bg-white/15" />
         <div className="truncate text-[11px] text-white/55">
           {profile?.full_name || profile?.email || "Signed in"}

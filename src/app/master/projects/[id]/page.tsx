@@ -29,9 +29,13 @@ export default async function MasterProjectPage({ params }: { params: Promise<{ 
           href={`/dashboard?project=${project.id}`}
           className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy2"
         >
-          Open live dashboard
+          Open project dashboard
         </a>
-        <TeamActions projectId={project.id} status={project.status} />
+        <TeamActions
+          projectId={project.id}
+          status={project.status}
+          canPublish={profile?.role === "platform_admin"}
+        />
       </div>
       <div className="space-y-6">
         <Card title="Client intake">
@@ -44,7 +48,8 @@ export default async function MasterProjectPage({ params }: { params: Promise<{ 
         </Card>
         <Card title="Task assignment (RACI) — team only">
           <p className="mb-4 text-sm text-slate-500">
-            After the client submits, assign owners here. Clients can view this once you publish.
+            After submission, assign owners and due dates here. The platform
+            admin publishes the finished RACI to the client.
           </p>
           <RaciEditor projectId={project.id} rows={raci || []} canEdit />
         </Card>

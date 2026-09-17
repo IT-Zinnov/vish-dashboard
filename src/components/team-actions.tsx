@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { advanceProjectAction, reopenIntakeAction, saveRaciAction } from "@/lib/actions";
+import {
+  advanceProjectAction,
+  publishRaciAction,
+  reopenIntakeAction,
+  saveRaciAction,
+} from "@/lib/actions";
 import { inputClass } from "@/components/ui";
 
 type Row = {
@@ -11,9 +16,19 @@ type Row = {
   accountable: string | null;
   consulted: string | null;
   informed: string | null;
+  due_date?: string | null;
+  status?: string | null;
 };
 
-export function TeamActions({ projectId, status }: { projectId: string; status: string }) {
+export function TeamActions({
+  projectId,
+  status,
+  canPublish,
+}: {
+  projectId: string;
+  status: string;
+  canPublish: boolean;
+}) {
   const [error, setError] = useState<string | null>(null);
   async function run(fn: () => Promise<{ error?: string }>) {
     setError(null);
@@ -27,14 +42,9 @@ export function TeamActions({ projectId, status }: { projectId: string; status: 
           Reopen intake
         </button>
       )}
-      {status === "submitted" && (
-        <button className="rounded-lg bg-brand px-3 py-1.5 text-xs text-white" onClick={() => run(() => advanceProjectAction(projectId, "in_review"))}>
-          Start review
-        </button>
-      )}
-      {(status === "submitted" || status === "in_review") && (
-        <button className="rounded-lg bg-navy px-3 py-1.5 text-xs text-white" onClick={() => run(() => advanceProjectAction(projectId, "published"))}>
-          Publish to client
+      {(status === "submitted" || status === "in_review") && canPublish && (
+        <button className="rounded-lg bg-navy px-3 py-1.5 text-xs text-white" onClick={() => run(() => publishRaciAction(projectId))}>
+          Publish RACI &amp; plan
         </button>
       )}
       {status === "published" && (
@@ -66,6 +76,8 @@ export function RaciEditor({ projectId, rows, canEdit }: { projectId: string; ro
         accountable: r.accountable || "",
         consulted: r.consulted || "",
         informed: r.informed || "",
+        dueDate: r.due_date || "",
+        status: r.status || "unassigned",
       }))
     );
     if (res.error) setError(res.error);
@@ -83,6 +95,8 @@ export function RaciEditor({ projectId, rows, canEdit }: { projectId: string; ro
               <th className="pb-2">A</th>
               <th className="pb-2">C</th>
               <th className="pb-2">I</th>
+              <th className="pb-2">Due date</th>
+              <th className="pb-2">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -102,6 +116,34 @@ export function RaciEditor({ projectId, rows, canEdit }: { projectId: string; ro
                     )}
                   </td>
                 ))}
+                <td className="py-2 pr-2">
+                  {canEdit ? (
+                    <input
+                      type="date"
+                      className={inputClass}
+                      value={r.due_date || ""}
+                      onChange={(e) => patch(r.id, "due_date", e.target.value)}
+                    />
+                  ) : (
+                    r.due_date || "—"
+                  )}
+                </td>
+                <td className="py-2 pr-2">
+                  {canEdit ? (
+                    <select
+                      className={inputClass}
+                      value={r.status || "unassigned"}
+                      onChange={(e) => patch(r.id, "status", e.target.value)}
+                    >
+                      <option value="unassigned">Unassigned</option>
+                      <option value="assigned">Assigned</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  ) : (
+                    (r.status || "unassigned").replace("_", " ")
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

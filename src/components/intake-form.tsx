@@ -149,7 +149,7 @@ export function IntakeForm({
                 <option>Shared Services / GBS</option>
               </select>
             </Field>
-            <Field label="Phased occupancy">
+            <Field label="Occupancy rollout (not a project stage)">
               <select className={inputClass} disabled={disabled} value={data.phasedOcc || "No — Single Move"} onChange={(e) => set("phasedOcc", e.target.value)}>
                 <option>No — Single Move</option>
                 <option>Yes — Interim / Temp Space</option>
