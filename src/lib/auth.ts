@@ -15,7 +15,7 @@ export async function getSessionProfile() {
   const select = () =>
     supabase
       .from("profiles")
-      .select("id, tenant_id, role, full_name, email")
+      .select("id, tenant_id, role, full_name, email, access_revoked_at")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -55,6 +55,10 @@ export async function getSessionProfile() {
 export async function requireUser() {
   const session = await getSessionProfile();
   if (!session.user) redirect("/login");
+  if (session.profile?.access_revoked_at) {
+    await session.supabase.auth.signOut();
+    redirect("/login?access=revoked");
+  }
   return session;
 }
 

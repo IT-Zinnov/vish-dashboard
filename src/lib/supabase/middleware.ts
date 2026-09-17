@@ -29,9 +29,10 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isPublic = path === "/login" || path.startsWith("/auth");
-  const redirectWithSession = (pathname: string) => {
+  const redirectWithSession = (pathname: string, search?: string) => {
     const url = request.nextUrl.clone();
     url.pathname = pathname;
+    url.search = search || "";
     const response = NextResponse.redirect(url);
     supabaseResponse.cookies.getAll().forEach((cookie) => {
       response.cookies.set(cookie);
@@ -43,27 +44,37 @@ export async function updateSession(request: NextRequest) {
     return redirectWithSession("/login");
   }
 
+  let profile: { role: string; access_revoked_at: string | null } | null = null;
+  if (user) {
+    try {
+      const result = await supabase
+        .from("profiles")
+        .select("role, access_revoked_at")
+        .eq("id", user.id)
+        .maybeSingle();
+      profile = result.data;
+    } catch {
+      // Network to PostgREST may fail behind a corporate proxy.
+    }
+  }
+
+  if (user && profile?.access_revoked_at) {
+    await supabase.auth.signOut();
+    return redirectWithSession("/login", "?access=revoked");
+  }
+
   if (user && path === "/login") {
     return redirectWithSession("/dashboard");
   }
 
-  if (user && path.startsWith("/master")) {
-    try {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (
-        profile &&
-        profile.role !== "platform_admin" &&
-        profile.role !== "team"
-      ) {
-        return redirectWithSession("/portal");
-      }
-    } catch {
-      // Network to PostgREST may fail behind a corporate proxy; allow through.
-    }
+  if (
+    user &&
+    path.startsWith("/master") &&
+    profile &&
+    profile.role !== "platform_admin" &&
+    profile.role !== "team"
+  ) {
+    return redirectWithSession("/portal");
   }
 
   return supabaseResponse;

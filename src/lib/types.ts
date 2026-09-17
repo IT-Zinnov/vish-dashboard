@@ -17,6 +17,7 @@ export type Profile = {
   role: AppRole;
   full_name: string | null;
   email: string | null;
+  access_revoked_at?: string | null;
 };
 
 export type Tenant = {

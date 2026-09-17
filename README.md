@@ -11,6 +11,7 @@ Multi-tenant GCC / workplace planning hub.
 - Client **contributors** submit intake and immediately receive generated Zinnov Intelligence and metrics
 - Your **team** assigns RACI; the platform admin publishes it separately for client viewing
 - Core Intake, Intelligence, Dashboard and RACI exports are stored privately in Supabase Storage
+- Platform admins can revoke user access and permanently delete projects or clients
 - Client **viewers** cannot edit the form
 
 The original HTML prototype is in `prototype/`.
@@ -43,6 +44,7 @@ variables. Never give it a `NEXT_PUBLIC_` prefix.
    - `supabase/migrations/004_backend_foundation.sql`
    - `supabase/migrations/005_apply_invites_to_existing_users.sql`
    - `supabase/migrations/006_workflow_exports.sql`
+   - `supabase/migrations/007_admin_lifecycle.sql`
 5. Auth → Providers → Email: you can turn **off** “Confirm email” while testing locally
 
 Office networks that intercept HTTPS: local `npm run dev` uses Node `--use-system-ca`. Vercel does not need that flag.

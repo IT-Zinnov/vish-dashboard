@@ -3,6 +3,7 @@ import { requireStaff } from "@/lib/auth";
 import { AppShell, Card, StatusBadge } from "@/components/ui";
 import { IntakeForm } from "@/components/intake-form";
 import { RaciEditor, TeamActions } from "@/components/team-actions";
+import { DeleteProjectButton } from "@/components/danger-actions";
 import type { IntakePayload } from "@/lib/types";
 
 export default async function MasterProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,6 +52,14 @@ export default async function MasterProjectPage({ params }: { params: Promise<{ 
           canPublish={profile?.role === "platform_admin"}
           recommendationStatus={recommendation?.status}
         />
+        {profile?.role === "platform_admin" && (
+          <span className="ml-auto">
+            <DeleteProjectButton
+              projectId={project.id}
+              projectName={project.name}
+            />
+          </span>
+        )}
       </div>
       <div className="space-y-6">
         <Card title="Client intake">

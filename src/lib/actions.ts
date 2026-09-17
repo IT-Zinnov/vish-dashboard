@@ -96,9 +96,192 @@ export async function assignUserAction(formData: FormData) {
     return { error: error.message };
   }
 
+  try {
+    const admin = createAdminClient();
+    const { error: restoreError } = await admin
+      .from("profiles")
+      .update({ access_revoked_at: null, access_revoked_by: null })
+      .ilike("email", email);
+    if (restoreError) {
+      return {
+        error: /access_revoked/i.test(restoreError.message)
+          ? "Run supabase/migrations/007_admin_lifecycle.sql first."
+          : restoreError.message,
+      };
+    }
+  } catch (restoreError) {
+    return {
+      error:
+        restoreError instanceof Error
+          ? restoreError.message
+          : "Unable to restore profile access.",
+    };
+  }
+
   revalidatePath("/master");
   if (tenantId) revalidatePath(`/master/tenants/${tenantId}`);
   return { outcome: (data as { outcome?: string } | null)?.outcome ?? "done" };
+}
+
+async function removeStoredExports(
+  admin: ReturnType<typeof createAdminClient>,
+  filter: { projectId?: string; tenantId?: string }
+) {
+  let query = admin.from("exports").select("storage_path");
+  if (filter.projectId) query = query.eq("project_id", filter.projectId);
+  if (filter.tenantId) query = query.eq("tenant_id", filter.tenantId);
+  const { data } = await query;
+  const paths = (data || [])
+    .map((item) => item.storage_path)
+    .filter((value): value is string => Boolean(value));
+  if (paths.length) {
+    const { error } = await admin.storage.from("project-exports").remove(paths);
+    if (error) throw error;
+  }
+}
+
+export async function revokeUserAccessAction(profileId: string) {
+  const { profile, user } = await requireStaff();
+  if (profile?.role !== "platform_admin") {
+    return { error: "Only the platform admin can revoke access." };
+  }
+  if (profileId === user!.id) {
+    return { error: "You cannot revoke your own platform-admin access." };
+  }
+
+  const admin = createAdminClient();
+  const { data: target } = await admin
+    .from("profiles")
+    .select("id, email, role, tenant_id")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (!target) return { error: "User profile was not found." };
+  if (target.role === "platform_admin") {
+    return { error: "Another platform admin cannot be revoked here." };
+  }
+
+  const { error } = await admin
+    .from("profiles")
+    .update({
+      tenant_id: null,
+      role: "client_viewer",
+      access_revoked_at: new Date().toISOString(),
+      access_revoked_by: user!.id,
+    })
+    .eq("id", profileId);
+  if (error) {
+    return {
+      error: /access_revoked/i.test(error.message)
+        ? "Run supabase/migrations/007_admin_lifecycle.sql first."
+        : error.message,
+    };
+  }
+
+  if (target.email) {
+    await admin
+      .from("invites")
+      .delete()
+      .is("accepted_at", null)
+      .ilike("email", target.email);
+  }
+  revalidatePath("/master");
+  if (target.tenant_id) revalidatePath(`/master/tenants/${target.tenant_id}`);
+  return { ok: true };
+}
+
+export async function deleteProjectAction(projectId: string) {
+  const { profile, user } = await requireStaff();
+  if (profile?.role !== "platform_admin") {
+    return { error: "Only the platform admin can delete projects." };
+  }
+
+  const admin = createAdminClient();
+  const { data: project } = await admin
+    .from("projects")
+    .select("id, tenant_id, name")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (!project) return { error: "Project was not found." };
+
+  try {
+    await removeStoredExports(admin, { projectId });
+  } catch (storageError) {
+    return {
+      error:
+        storageError instanceof Error
+          ? storageError.message
+          : "Unable to remove project exports.",
+    };
+  }
+
+  const { error } = await admin.from("projects").delete().eq("id", projectId);
+  if (error) return { error: error.message };
+  await admin.from("activity_log").insert({
+    tenant_id: project.tenant_id,
+    project_id: null,
+    actor_id: user!.id,
+    event_type: "project.deleted",
+    summary: `Project deleted: ${project.name}`,
+  });
+
+  revalidatePath("/master");
+  revalidatePath(`/master/tenants/${project.tenant_id}`);
+  return { ok: true, redirectTo: `/master/tenants/${project.tenant_id}` };
+}
+
+export async function deleteTenantAction(tenantId: string) {
+  const { profile, user } = await requireStaff();
+  if (profile?.role !== "platform_admin") {
+    return { error: "Only the platform admin can delete clients." };
+  }
+
+  const admin = createAdminClient();
+  const { data: tenant } = await admin
+    .from("tenants")
+    .select("id, name")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (!tenant) return { error: "Client was not found." };
+
+  try {
+    await removeStoredExports(admin, { tenantId });
+  } catch (storageError) {
+    return {
+      error:
+        storageError instanceof Error
+          ? storageError.message
+          : "Unable to remove client exports.",
+    };
+  }
+
+  const { data: members } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("tenant_id", tenantId);
+  const memberIds = (members || []).map((member) => member.id);
+  if (memberIds.length) {
+    const { error: revokeError } = await admin
+      .from("profiles")
+      .update({
+        tenant_id: null,
+        role: "client_viewer",
+        access_revoked_at: new Date().toISOString(),
+        access_revoked_by: user!.id,
+      })
+      .in("id", memberIds);
+    if (revokeError) {
+      return {
+        error: /access_revoked/i.test(revokeError.message)
+          ? "Run supabase/migrations/007_admin_lifecycle.sql first."
+          : revokeError.message,
+      };
+    }
+  }
+
+  const { error } = await admin.from("tenants").delete().eq("id", tenantId);
+  if (error) return { error: error.message };
+  revalidatePath("/master");
+  return { ok: true, redirectTo: "/master" };
 }
 
 export async function createProjectAction(formData: FormData) {

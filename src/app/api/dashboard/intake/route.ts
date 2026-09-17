@@ -54,7 +54,7 @@ async function authorizeProject(projectId: string) {
   const [{ data: profile }, { data: project }] = await Promise.all([
     supabase
       .from("profiles")
-      .select("role, tenant_id")
+      .select("role, tenant_id, access_revoked_at")
       .eq("id", user.id)
       .maybeSingle(),
     supabase
@@ -64,7 +64,7 @@ async function authorizeProject(projectId: string) {
       .maybeSingle(),
   ]);
 
-  if (!profile || !project) {
+  if (!profile || profile.access_revoked_at || !project) {
     return { error: "Project not found or access denied.", status: 404 } as const;
   }
 

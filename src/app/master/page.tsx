@@ -1,6 +1,7 @@
 import { requireStaff } from "@/lib/auth";
 import { AppShell, Card, StatusBadge } from "@/components/ui";
 import { AssignUserForm, CreateTenantForm, InviteForm } from "@/components/admin-forms";
+import { RevokeAccessButton } from "@/components/danger-actions";
 
 export default async function MasterHome() {
   const { supabase, profile } = await requireStaff();
@@ -14,6 +15,13 @@ export default async function MasterHome() {
     .select("id, email, role, accepted_at, tenants(name)")
     .order("created_at", { ascending: false })
     .limit(20);
+  const { data: users } =
+    profile?.role === "platform_admin"
+      ? await supabase
+          .from("profiles")
+          .select("id, email, full_name, role, tenant_id, access_revoked_at, tenants(name)")
+          .order("created_at", { ascending: false })
+      : { data: [] };
 
   return (
     <AppShell profile={profile} title="Master console">
@@ -31,6 +39,46 @@ export default async function MasterHome() {
           </p>
           <AssignUserForm tenants={tenants || []} />
         </Card>
+        {profile?.role === "platform_admin" && (
+          <Card title="User access">
+            <p className="mb-4 text-sm text-slate-500">
+              Removing access blocks the account across the application. To
+              restore a revoked account, use “Attach a user who already signed
+              up” above and assign its role and client again.
+            </p>
+            {!users?.length ? (
+              <p className="text-sm text-slate-500">No user profiles found.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100 text-sm">
+                {users.map((item) => (
+                  <li key={item.id} className="flex items-center gap-3 py-3">
+                    <div>
+                      <div className="font-medium">
+                        {item.full_name || item.email || "Unnamed user"}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {item.email} · {item.role.replace("_", " ")} ·{" "}
+                        {(item.tenants as { name?: string } | null)?.name || "No client"}
+                      </div>
+                    </div>
+                    {item.access_revoked_at ? (
+                      <span className="ml-auto rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                        Access revoked
+                      </span>
+                    ) : item.role !== "platform_admin" && item.email ? (
+                      <span className="ml-auto">
+                        <RevokeAccessButton
+                          profileId={item.id}
+                          email={item.email}
+                        />
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
         <Card title="Clients">
           {!tenants?.length ? (
             <p className="text-sm text-slate-500">No clients yet. Onboard the first company above.</p>

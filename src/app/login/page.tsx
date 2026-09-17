@@ -1,7 +1,12 @@
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import LoginForm from "./login-form";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ access?: string }>;
+}) {
+  const { access } = await searchParams;
   const configured = isSupabaseConfigured();
 
   return (
@@ -14,6 +19,11 @@ export default function LoginPage() {
           <h1 className="text-xl font-bold">CoE Hub</h1>
           <p className="text-sm text-slate-500">Sign in to the workplace planning dashboard</p>
         </div>
+        {access === "revoked" && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            Access for this account has been revoked. Contact the platform administrator.
+          </div>
+        )}
         {!configured ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             Add <code className="font-mono">.env.local</code> with your Supabase URL and anon key

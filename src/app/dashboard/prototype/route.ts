@@ -29,9 +29,13 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, tenant_id, role, full_name, email")
+    .select("id, tenant_id, role, full_name, email, access_revoked_at")
     .eq("id", user.id)
     .maybeSingle();
+
+  if (profile?.access_revoked_at) {
+    return NextResponse.json({ error: "Access revoked" }, { status: 403 });
+  }
 
   const role = profile?.role as AppRole | undefined;
   const staff = role === "platform_admin" || role === "team";

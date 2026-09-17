@@ -2,6 +2,11 @@ import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/auth";
 import { AppShell, Card, StatusBadge } from "@/components/ui";
 import { CreateProjectForm } from "@/components/admin-forms";
+import {
+  DeleteProjectButton,
+  DeleteTenantButton,
+  RevokeAccessButton,
+} from "@/components/danger-actions";
 
 export default async function TenantPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -43,6 +48,11 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
                   <span className="ml-auto">
                     <StatusBadge status={p.status} />
                   </span>
+                  {profile?.role === "platform_admin" && (
+                    <span className="ml-3">
+                      <DeleteProjectButton projectId={p.id} projectName={p.name} />
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -54,14 +64,28 @@ export default async function TenantPage({ params }: { params: Promise<{ id: str
           ) : (
             <ul className="space-y-2 text-sm">
               {members.map((m) => (
-                <li key={m.id}>
+                <li key={m.id} className="flex items-center gap-2">
                   <span className="font-medium">{m.full_name || m.email}</span>
-                  <span className="ml-2 text-slate-500">{m.role.replace("_", " ")}</span>
+                  <span className="text-slate-500">{m.role.replace("_", " ")}</span>
+                  {profile?.role === "platform_admin" && m.email && (
+                    <span className="ml-auto">
+                      <RevokeAccessButton profileId={m.id} email={m.email} />
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </Card>
+        {profile?.role === "platform_admin" && (
+          <Card title="Danger zone">
+            <p className="mb-4 text-sm text-slate-600">
+              Deleting this client permanently removes every project, intake,
+              Intelligence result, RACI row and export belonging to it.
+            </p>
+            <DeleteTenantButton tenantId={tenant.id} tenantName={tenant.name} />
+          </Card>
+        )}
       </div>
     </AppShell>
   );

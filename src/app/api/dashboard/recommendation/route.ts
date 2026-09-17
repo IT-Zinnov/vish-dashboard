@@ -11,10 +11,12 @@ async function session() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, role, tenant_id")
+    .select("id, role, tenant_id, access_revoked_at")
     .eq("id", user.id)
     .maybeSingle();
-  if (!profile) return { error: "Profile is not configured.", status: 403 } as const;
+  if (!profile || profile.access_revoked_at) {
+    return { error: "Profile access is unavailable.", status: 403 } as const;
+  }
   return { supabase, user, profile } as const;
 }
 
