@@ -684,37 +684,127 @@
     });
   }
 
+  let exportHistoryCache = [];
+  let exportTypeFilter = "all";
+
+  async function renderExportFilters() {
+    const controls = document.querySelector("#pg-export .pg-hd .fc-row");
+    if (!controls) return;
+    controls.innerHTML =
+      '<select class="fc" id="coe-export-project" aria-label="Export project" style="width:280px;padding:6px 10px;font-size:12px;"><option>Loading projects…</option></select>' +
+      '<select class="fc" id="coe-export-type" aria-label="Export type" style="width:155px;padding:6px 10px;font-size:12px;">' +
+      '<option value="all">All file types</option><option value="intake">Intake</option><option value="intelligence">Intelligence</option><option value="dashboard">Dashboard</option><option value="raci">RACI</option></select>';
+    const projectSelect = document.getElementById("coe-export-project");
+    const typeSelect = document.getElementById("coe-export-type");
+    typeSelect.addEventListener("change", () => {
+      exportTypeFilter = typeSelect.value;
+      paintExportHistory();
+    });
+    try {
+      const response = await fetch("/api/dashboard/export?scope=projects");
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to load projects.");
+      const projects = result.projects || [];
+      projectSelect.innerHTML = "";
+      [
+        ["Client projects", projects.filter((item) => !item.is_demo)],
+        ["Demo clients", projects.filter((item) => item.is_demo)],
+      ].forEach(([label, items]) => {
+        if (!items.length) return;
+        const group = document.createElement("optgroup");
+        group.label = label;
+        items.forEach((item) => {
+          const option = document.createElement("option");
+          const tenant = Array.isArray(item.tenants)
+            ? item.tenants[0]?.name
+            : item.tenants?.name;
+          option.value = item.id;
+          option.textContent =
+            (tenant ? tenant + " — " : "") +
+            item.name +
+            (item.is_demo ? " (Demo)" : "");
+          option.selected = Boolean(project && item.id === project.id);
+          group.appendChild(option);
+        });
+        projectSelect.appendChild(group);
+      });
+      if (!projects.length) {
+        projectSelect.innerHTML = "<option>No projects available</option>";
+        projectSelect.disabled = true;
+      }
+      projectSelect.addEventListener("change", () => {
+        window.parent.location.href =
+          "/dashboard?project=" +
+          encodeURIComponent(projectSelect.value) +
+          "&view=export";
+      });
+    } catch (error) {
+      projectSelect.innerHTML =
+        "<option>" +
+        escapeHtml(error.message || "Unable to load projects") +
+        "</option>";
+      projectSelect.disabled = true;
+    }
+  }
+
   function renderExportCenter() {
     const body = document.querySelector("#pg-export .pg-body");
     if (!body) return;
+    renderExportFilters();
     const scopeMessage = permissions.staff
-      ? "Exports below use only the selected project. Open another client project to export its data."
-      : "Only your selected project can be exported. Standard demonstration case studies remain available in Repository.";
+      ? "Select any authorized real or demonstration project above. Every file is generated from that project's current backend data."
+      : "Only your selected project can be exported. Files are generated from your latest approved project data.";
+    const intakeReady = Boolean(context.intake && Object.keys(context.intake).length);
+    const intelligenceReady = Boolean(context.recommendation);
+    const raciReady =
+      Boolean(context.raci && context.raci.length) &&
+      (permissions.staff || permissions.raciPublished);
     body.innerHTML =
-      '<div class="card mb3"><div class="card-title">Project exports</div>' +
+      '<div class="card mb3"><div class="fcb"><div><div class="card-title">Project exports</div>' +
+      '<div class="xs muted">' +
+      escapeHtml((context.tenant?.name || "Client") + " — " + (project?.name || "No project selected")) +
+      "</div></div>" +
+      (context.isDemo ? '<span class="badge bg-orange">Demo data</span>' : "") +
+      "</div>" +
       '<p class="sm muted mb3">' +
       escapeHtml(scopeMessage) +
-      " Files are stored privately.</p>" +
-      '<div class="fc-row gap3" id="coe-export-actions"></div></div>' +
+      " Files are stored privately and download links expire.</p>" +
+      '<div class="g2" id="coe-export-actions" style="gap:.75rem;"></div></div>' +
       '<div class="card"><div class="card-title">Export history</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Status</th><th>Created</th><th></th></tr></thead>' +
       '<tbody id="coe-export-history"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></div>';
     const actions = document.getElementById("coe-export-actions");
     const exportActions = [
-      ["Intake Excel", "intake_xlsx"],
-      ["Intelligence PDF", "intelligence_pdf"],
-      ["Dashboard PDF", "dashboard_pdf"],
-      ...(permissions.staff || permissions.raciPublished
-        ? [["RACI Excel", "raci_xlsx"]]
-        : []),
+      ["Intake Excel", "Structured workbook with all submitted inputs", "intake_xlsx", intakeReady],
+      ["Intake CSV", "Portable field-by-field intake data", "intake_csv", intakeReady],
+      ["Intelligence PDF", "Full recommendation report with vector charts", "intelligence_pdf", intelligenceReady],
+      ["Intelligence Excel", "Recommendation, workplace, risk and infrastructure sheets", "intelligence_xlsx", intelligenceReady],
+      ["Dashboard PDF", "Management KPIs, charts, timeline and RACI", "dashboard_pdf", intelligenceReady],
+      ["Dashboard Excel", "KPI projections and RACI status workbook", "dashboard_xlsx", intelligenceReady],
+      ["RACI Excel", "Formatted published assignment matrix", "raci_xlsx", raciReady],
+      ["RACI CSV", "Portable RACI assignment data", "raci_csv", raciReady],
     ];
-    exportActions.forEach(([label, type]) => {
+    exportActions.forEach(([label, description, type, ready]) => {
+      const card = document.createElement("div");
+      card.className = "export-card";
+      card.style.cursor = ready ? "pointer" : "not-allowed";
+      card.style.opacity = ready ? "1" : ".55";
+      const text = document.createElement("div");
+      text.innerHTML =
+        '<div class="sm semi">' +
+        escapeHtml(label) +
+        '</div><div class="xs muted">' +
+        escapeHtml(ready ? description : "Required project data is not available yet") +
+        "</div>";
       const button = document.createElement("button");
       button.className = "btn btn-outline btn-sm";
-      button.textContent = label;
+      button.textContent = ready ? "Generate" : "Unavailable";
+      button.disabled = !ready;
       button.dataset.exportWired = "true";
       button.addEventListener("click", () => requestExport(type, button));
-      actions.appendChild(button);
+      card.appendChild(text);
+      card.appendChild(button);
+      actions.appendChild(card);
     });
     renderExportHistory();
   }
@@ -728,16 +818,36 @@
       );
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Unable to load exports.");
-      tableBody.innerHTML = "";
-      const items = result.exports || [];
-      if (!items.length) {
-        const row = tableBody.insertRow();
-        const cell = row.insertCell();
-        cell.colSpan = 5;
-        cell.textContent = "No exports generated yet.";
-        return;
-      }
-      items.forEach((item) => {
+      exportHistoryCache = result.exports || [];
+      paintExportHistory();
+    } catch (error) {
+      tableBody.innerHTML =
+        '<tr><td colspan="5">' +
+        escapeHtml(error.message || "Unable to load exports.") +
+        "</td></tr>";
+    }
+  }
+
+  function paintExportHistory() {
+    const tableBody = document.getElementById("coe-export-history");
+    if (!tableBody) return;
+    tableBody.innerHTML = "";
+    const items = exportHistoryCache.filter(
+      (item) =>
+        exportTypeFilter === "all" ||
+        item.export_type.startsWith(exportTypeFilter + "_")
+    );
+    if (!items.length) {
+      const row = tableBody.insertRow();
+      const cell = row.insertCell();
+      cell.colSpan = 5;
+      cell.textContent =
+        exportTypeFilter === "all"
+          ? "No exports generated yet."
+          : "No matching exports generated yet.";
+      return;
+    }
+    items.forEach((item) => {
         const row = tableBody.insertRow();
         [item.file_name || "Export", item.export_type.replace(/_/g, " "), item.status, relativeTime(item.created_at)].forEach(
           (text) => (row.insertCell().textContent = text)
@@ -761,12 +871,6 @@
           action.appendChild(button);
         }
       });
-    } catch (error) {
-      tableBody.innerHTML =
-        '<tr><td colspan="5">' +
-        escapeHtml(error.message || "Unable to load exports.") +
-        "</td></tr>";
-    }
   }
 
   function wireActions() {

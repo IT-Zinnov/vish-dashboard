@@ -1,9 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import ExcelJS from "exceljs";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserAllowingCookieFallback } from "@/lib/supabase/get-user";
+import type { IntakePayload } from "@/lib/types";
+import type {
+  ProjectExportData,
+  RecommendationOutput,
+} from "@/lib/exports/types";
+import {
+  buildCsv,
+  buildDashboardWorkbook,
+  buildIntakeWorkbook,
+  buildIntelligenceWorkbook,
+  buildRaciWorkbook,
+  intakeCsvRows,
+  raciCsvRows,
+} from "@/lib/exports/spreadsheets";
+import {
+  buildDashboardPdf,
+  buildIntelligencePdf,
+} from "@/lib/exports/pdf-reports";
 
 export const runtime = "nodejs";
 
@@ -33,7 +49,7 @@ async function authorizeProject(projectId: string) {
       .single(),
     supabase
       .from("projects")
-      .select("id, tenant_id, name, status, raci_published_at")
+      .select("id, tenant_id, name, status, raci_published_at, is_demo, tenants(name)")
       .eq("id", projectId)
       .maybeSingle(),
   ]);
@@ -45,115 +61,6 @@ async function authorizeProject(projectId: string) {
     return { error: "Project not found or access denied.", status: 404 } as const;
   }
   return { supabase, user, profile, project, staff } as const;
-}
-
-function flatten(
-  input: unknown,
-  prefix = "",
-  rows: Array<[string, string]> = []
-) {
-  if (input === null || input === undefined) {
-    rows.push([prefix, ""]);
-  } else if (Array.isArray(input)) {
-    input.forEach((value, index) => flatten(value, `${prefix}[${index + 1}]`, rows));
-  } else if (typeof input === "object") {
-    Object.entries(input as Record<string, unknown>).forEach(([key, value]) =>
-      flatten(value, prefix ? `${prefix}.${key}` : key, rows)
-    );
-  } else {
-    rows.push([prefix, String(input)]);
-  }
-  return rows;
-}
-
-function csv(rows: Array<Array<string | number | null | undefined>>) {
-  return rows
-    .map((row) =>
-      row
-        .map((value) => {
-          const text = String(value ?? "");
-          return `"${text.replace(/"/g, '""')}"`;
-        })
-        .join(",")
-    )
-    .join("\r\n");
-}
-
-async function workbook(
-  title: string,
-  rows: Array<Array<string | number | null | undefined>>
-) {
-  const book = new ExcelJS.Workbook();
-  book.creator = "Zinnov Dashboard";
-  const sheet = book.addWorksheet(title.slice(0, 31));
-  rows.forEach((row) => sheet.addRow(row));
-  const first = sheet.getRow(1);
-  first.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  first.fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF0B1F3A" },
-  };
-  sheet.columns.forEach((column) => {
-    column.width = Math.min(
-      50,
-      Math.max(
-        14,
-        ...(column.values || []).map((value) => String(value ?? "").length + 2)
-      )
-    );
-  });
-  return Buffer.from(await book.xlsx.writeBuffer());
-}
-
-async function pdf(title: string, sections: Array<[string, string]>) {
-  const document = await PDFDocument.create();
-  const regular = await document.embedFont(StandardFonts.Helvetica);
-  const bold = await document.embedFont(StandardFonts.HelveticaBold);
-  let page = document.addPage([595, 842]);
-  let y = 790;
-
-  const newPage = () => {
-    page = document.addPage([595, 842]);
-    y = 800;
-  };
-  const write = (text: string, isBold = false, size = 10) => {
-    const words = text.split(/\s+/);
-    let line = "";
-    const lines: string[] = [];
-    words.forEach((word) => {
-      const candidate = line ? `${line} ${word}` : word;
-      if ((isBold ? bold : regular).widthOfTextAtSize(candidate, size) > 500) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = candidate;
-      }
-    });
-    if (line) lines.push(line);
-    lines.forEach((value) => {
-      if (y < 45) newPage();
-      page.drawText(value, {
-        x: 45,
-        y,
-        size,
-        font: isBold ? bold : regular,
-        color: rgb(0.05, 0.12, 0.23),
-      });
-      y -= size + 5;
-    });
-  };
-
-  write("ZINNOV DASHBOARD", true, 9);
-  y -= 5;
-  write(title, true, 20);
-  y -= 16;
-  sections.forEach(([label, value]) => {
-    write(label, true, 10);
-    write(value || "—", false, 10);
-    y -= 7;
-  });
-  return Buffer.from(await document.save());
 }
 
 export async function POST(request: NextRequest) {
@@ -189,9 +96,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const [{ data: intake }, { data: recommendation }, { data: raci }] =
+  const [
+    { data: intake, error: intakeError },
+    { data: recommendation, error: recommendationError },
+    { data: raci, error: raciError },
+  ] =
     await Promise.all([
-      admin.from("intakes").select("payload").eq("project_id", projectId).single(),
+      admin
+        .from("intakes")
+        .select("payload")
+        .eq("project_id", projectId)
+        .maybeSingle(),
       admin
         .from("recommendations")
         .select("output, version")
@@ -208,6 +123,48 @@ export async function POST(request: NextRequest) {
         .order("sort_order"),
     ]);
 
+  if (intakeError || recommendationError || raciError) {
+    return NextResponse.json(
+      {
+        error:
+          intakeError?.message ||
+          recommendationError?.message ||
+          raciError?.message ||
+          "Unable to load project export data.",
+      },
+      { status: 500 }
+    );
+  }
+
+  const needsIntake =
+    exportType.startsWith("intake_") ||
+    exportType.startsWith("intelligence_") ||
+    exportType.startsWith("dashboard_");
+  const needsRecommendation =
+    exportType.startsWith("intelligence_") ||
+    exportType.startsWith("dashboard_");
+  if (needsIntake && (!intake?.payload || !Object.keys(intake.payload).length)) {
+    return NextResponse.json(
+      { error: "This project has no submitted intake data to export." },
+      { status: 422 }
+    );
+  }
+  if (
+    needsRecommendation &&
+    (!recommendation?.output || !Object.keys(recommendation.output).length)
+  ) {
+    return NextResponse.json(
+      { error: "Zinnov Intelligence has not been generated for this project." },
+      { status: 422 }
+    );
+  }
+  if (exportType.startsWith("raci_") && !(raci || []).length) {
+    return NextResponse.json(
+      { error: "This project has no RACI assignments to export." },
+      { status: 422 }
+    );
+  }
+
   const date = new Date().toISOString().slice(0, 10);
   const baseName = access.project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   const isCsv = exportType.endsWith("_csv");
@@ -220,39 +177,54 @@ export async function POST(request: NextRequest) {
       ? "application/pdf"
       : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+  const tenantRelation = access.project.tenants as
+    | { name?: string }
+    | Array<{ name?: string }>
+    | null;
+  const clientName = Array.isArray(tenantRelation)
+    ? tenantRelation[0]?.name || "Client"
+    : tenantRelation?.name || "Client";
+  const exportData: ProjectExportData = {
+    project: {
+      id: access.project.id,
+      name: access.project.name,
+      status: access.project.status,
+      is_demo: Boolean(access.project.is_demo),
+    },
+    clientName,
+    intake: (intake?.payload || {}) as IntakePayload,
+    recommendation: (recommendation?.output || {}) as RecommendationOutput,
+    recommendationVersion: recommendation?.version,
+    raci: raci || [],
+    generatedAt: new Date().toISOString(),
+  };
+
   let bytes: Buffer;
-  if (exportType.startsWith("raci_")) {
-    const rows = [
-      ["Workstream", "Responsible", "Accountable", "Consulted", "Informed", "Due date", "Status"],
-      ...(raci || []).map((row) => [
-        row.workstream,
-        row.responsible,
-        row.accountable,
-        row.consulted,
-        row.informed,
-        row.due_date,
-        row.status,
-      ]),
-    ];
-    bytes = isCsv ? Buffer.from(csv(rows), "utf8") : await workbook("RACI", rows);
-  } else {
-    const source = exportType.startsWith("intake_")
-      ? intake?.payload || {}
-      : recommendation?.output || {};
-    const flat = flatten(source);
-    if (isPdf) {
-      bytes = await pdf(
-        exportType.startsWith("dashboard_")
-          ? `${access.project.name} — Project Dashboard`
-          : `${access.project.name} — Zinnov Intelligence`,
-        flat
-      );
-    } else {
-      bytes = await workbook(
-        exportType.startsWith("dashboard_") ? "Dashboard" : exportType.startsWith("intake_") ? "Intake" : "Intelligence",
-        [["Metric", "Value"], ...flat]
-      );
-    }
+  switch (exportType) {
+    case "intake_csv":
+      bytes = Buffer.from(buildCsv(intakeCsvRows(exportData)), "utf8");
+      break;
+    case "raci_csv":
+      bytes = Buffer.from(buildCsv(raciCsvRows(exportData)), "utf8");
+      break;
+    case "intake_xlsx":
+      bytes = await buildIntakeWorkbook(exportData);
+      break;
+    case "intelligence_xlsx":
+      bytes = await buildIntelligenceWorkbook(exportData);
+      break;
+    case "dashboard_xlsx":
+      bytes = await buildDashboardWorkbook(exportData);
+      break;
+    case "raci_xlsx":
+      bytes = await buildRaciWorkbook(exportData);
+      break;
+    case "intelligence_pdf":
+      bytes = await buildIntelligencePdf(exportData);
+      break;
+    case "dashboard_pdf":
+      bytes = await buildDashboardPdf(exportData);
+      break;
   }
 
   const { data: exportRow, error: createError } = await admin
@@ -318,6 +290,32 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  if (request.nextUrl.searchParams.get("scope") === "projects") {
+    const supabase = await createClient();
+    const user = await getUserAllowingCookieFallback(supabase);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("access_revoked_at")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!profile || profile.access_revoked_at) {
+      return NextResponse.json({ error: "Access denied." }, { status: 403 });
+    }
+    const { data, error } = await supabase
+      .from("projects")
+      .select("id, name, status, is_demo, tenants(name)")
+      .order("is_demo", { ascending: true })
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ projects: data || [] });
+  }
+
   const projectId = request.nextUrl.searchParams.get("projectId") || "";
   const exportId = request.nextUrl.searchParams.get("exportId");
   if (!projectId) {
