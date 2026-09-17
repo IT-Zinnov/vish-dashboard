@@ -26,6 +26,7 @@ export type Tenant = {
   slug: string;
   status: string;
   created_at: string;
+  is_demo?: boolean;
 };
 
 export type Project = {
@@ -37,6 +38,7 @@ export type Project = {
   submitted_by: string | null;
   published_at: string | null;
   created_at: string;
+  is_demo?: boolean;
 };
 
 export type IntakePayload = {

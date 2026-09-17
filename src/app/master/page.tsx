@@ -5,10 +5,15 @@ import { RevokeAccessButton } from "@/components/danger-actions";
 
 export default async function MasterHome() {
   const { supabase, profile } = await requireStaff();
-  const { data: tenants } = await supabase.from("tenants").select("*").order("created_at", { ascending: false });
+  const { data: tenants } = await supabase
+    .from("tenants")
+    .select("*")
+    .order("is_demo", { ascending: true })
+    .order("created_at", { ascending: false });
   const { data: projects } = await supabase
     .from("projects")
-    .select("id, name, status, tenant_id, submitted_at, created_at, tenants(name)")
+    .select("id, name, status, tenant_id, submitted_at, created_at, is_demo, tenants(name)")
+    .order("is_demo", { ascending: true })
     .order("created_at", { ascending: false });
   const { data: invites } = await supabase
     .from("invites")
@@ -90,6 +95,11 @@ export default async function MasterHome() {
                     <a className="font-medium text-brand hover:underline" href={`/master/tenants/${t.id}`}>
                       {t.name}
                     </a>
+                    {t.is_demo && (
+                      <span className="ml-2 rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        Demo
+                      </span>
+                    )}
                     <div className="text-xs text-slate-500">{t.slug}</div>
                   </div>
                   <span className="ml-auto text-xs capitalize text-slate-400">{t.status}</span>
@@ -117,6 +127,11 @@ export default async function MasterHome() {
                       <a className="font-medium text-brand hover:underline" href={`/master/projects/${p.id}`}>
                         {p.name}
                       </a>
+                      {p.is_demo && (
+                        <span className="ml-2 rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          Demo
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 text-slate-600">
                       {(p.tenants as { name?: string } | null)?.name || "—"}

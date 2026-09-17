@@ -46,6 +46,8 @@ variables. Never give it a `NEXT_PUBLIC_` prefix.
    - `supabase/migrations/006_workflow_exports.sql`
    - `supabase/migrations/007_admin_lifecycle.sql`
    - `supabase/migrations/008_cleanup_demo_and_deleted_accounts.sql`
+   - `supabase/migrations/009_demo_clients.sql` — seeds the two permanent demo
+     clients. Re-run it any time to restore them after edits or deletion.
 5. Auth → Providers → Email: you can turn **off** “Confirm email” while testing locally
 
 Office networks that intercept HTTPS: local `npm run dev` uses Node `--use-system-ca`. Vercel does not need that flag.

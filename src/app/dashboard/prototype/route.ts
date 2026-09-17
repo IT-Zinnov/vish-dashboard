@@ -3,58 +3,11 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserAllowingCookieFallback } from "@/lib/supabase/get-user";
-import { generateRecommendation } from "@/lib/recommendation";
-import type { AppRole, IntakePayload } from "@/lib/types";
+import type { AppRole } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 let prototypeTemplate: Promise<string> | null = null;
-
-const DEMO_INTAKE = {
-  org: "Fortune 500 Technology Company",
-  parent: "Global Technology Group",
-  industry: "Technology",
-  requestType: "New setup",
-  contactName: "Demo Sponsor",
-  contactEmail: "demo@example.com",
-  objective: "Establish a scalable India GCC for engineering and product delivery.",
-  officeType: "GCC",
-  workModel: "Hybrid",
-  hours: "Standard business hours (9–6)",
-  primaryFn: "Engineering / R&D",
-  phasedOcc: "Yes — Interim / Temp Space",
-  hc1: 500,
-  hc3: 575,
-  hc6: 650,
-  hc12: 750,
-  hc24: 850,
-  density: 100,
-  workspaceStyle: "Activity-based",
-  kickoff: "2026-01",
-  golive: "2026-06",
-  urgency: "Standard",
-  deviceType: "Laptop",
-  devices: 525,
-} satisfies IntakePayload;
-
-const DEMO_RACI = [
-  ["Real Estate Strategy", "RE Program Lead", "Executive Sponsor"],
-  ["Design & Build", "Workplace Delivery Lead", "RE Program Lead"],
-  ["IT Infrastructure", "IT Infrastructure Lead", "Technology Sponsor"],
-  ["Facilities Management", "Facilities Lead", "RE Program Lead"],
-  ["Change & Communications", "Change Lead", "HR Sponsor"],
-].map(([workstream, responsible, accountable], index) => ({
-  id: `demo-raci-${index + 1}`,
-  workstream,
-  responsible,
-  accountable,
-  consulted: "Cross-functional team",
-  informed: "Client stakeholders",
-  due_date: null,
-  status: "assigned",
-  locked: true,
-  sort_order: index,
-}));
 
 function getPrototypeTemplate() {
   if (!prototypeTemplate) {
@@ -103,8 +56,11 @@ export async function GET(request: NextRequest) {
   let projectQuery = supabase
     .from("projects")
     .select(
-      "id, tenant_id, name, status, created_at, submitted_at, published_at, raci_published_at"
+      "id, tenant_id, name, status, created_at, submitted_at, published_at, raci_published_at, is_demo"
     )
+    // Real work always wins the default slot; demo clients are only auto-opened
+    // when there is nothing real to show.
+    .order("is_demo", { ascending: true })
     .order("created_at", { ascending: false })
     .limit(1);
 
@@ -158,8 +114,9 @@ export async function GET(request: NextRequest) {
   let portfolioQuery = supabase
     .from("projects")
     .select(
-      "id, tenant_id, name, status, created_at, submitted_at, tenants(name), intakes(payload, updated_at)"
+      "id, tenant_id, name, status, created_at, submitted_at, is_demo, tenants(name), intakes(payload, updated_at)"
     )
+    .order("is_demo", { ascending: true })
     .order("created_at", { ascending: false })
     .limit(8);
   if (!staff && profile?.tenant_id) {
@@ -216,55 +173,34 @@ export async function GET(request: NextRequest) {
   const openRaci = (raciRows || []).filter(
     (row) => row.status !== "completed"
   );
-  const useDemo =
-    staff && !project && (portfolioProjects || []).length === 0;
-  const demoProject = useDemo
-    ? {
-        id: "demo-project",
-        tenant_id: "demo-tenant",
-        name: "India GCC Workplace Demo",
-        status: "published",
-        created_at: "2026-01-01T00:00:00.000Z",
-        submitted_at: "2026-01-02T00:00:00.000Z",
-        published_at: "2026-01-03T00:00:00.000Z",
-        raci_published_at: "2026-01-03T00:00:00.000Z",
-      }
-    : null;
-  const contextProject = demoProject || project;
-  const contextTenant = useDemo
-    ? {
-        id: "demo-tenant",
-        name: "Fortune 500 Technology Company",
-        slug: "fortune-500-technology-demo",
-      }
-    : tenant;
-  const contextRecommendation = useDemo
-    ? {
-        id: "demo-recommendation",
-        version: 1,
-        status: "approved",
-        output: generateRecommendation(DEMO_INTAKE),
-        generated_at: "2026-01-02T00:00:00.000Z",
-      }
-    : recommendation;
+  const isDemo = Boolean(project?.is_demo);
   const canEdit =
     Boolean(project) &&
     project?.status === "draft" &&
     role !== "client_viewer";
-  const readyForReview = (portfolioProjects || []).filter(
+
+  // Demo clients are seeded for presentations, so they must never distort the
+  // real delivery numbers on the Home strip.
+  const realProjects = (portfolioProjects || []).filter((item) => !item.is_demo);
+  const realProjectIds = new Set(realProjects.map((item) => item.id));
+  const realRecommendations = (recommendations || []).filter((item) =>
+    realProjectIds.has(item.project_id)
+  );
+  const realOpenRaci = openRaci.filter((item) =>
+    realProjectIds.has(item.project_id)
+  );
+  const readyForReview = realProjects.filter(
     (item) => item.status === "submitted" || item.status === "in_review"
   ).length;
-  const awaitingInputs = (portfolioProjects || []).filter(
+  const awaitingInputs = realProjects.filter(
     (item) => item.status === "draft"
   ).length;
-  const intelligenceReady = Boolean(contextRecommendation);
-  const raciPublished =
-    useDemo ||
-    Boolean(
-      project?.raci_published_at &&
-        project &&
-        ["published", "execution"].includes(project.status)
-    );
+  const intelligenceReady = Boolean(recommendation);
+  const raciPublished = Boolean(
+    project?.raci_published_at &&
+      project &&
+      ["published", "execution"].includes(project.status)
+  );
   const canViewRaci = staff || raciPublished;
   const context = {
     user: profile
@@ -275,13 +211,13 @@ export async function GET(request: NextRequest) {
           role,
         }
       : { id: user.id, name: null, email: user.email, role: null },
-    tenant: contextTenant,
-    project: contextProject,
-    intake: useDemo ? DEMO_INTAKE : intake?.payload ?? {},
-    isDemo: useDemo,
+    tenant,
+    project,
+    intake: intake?.payload ?? {},
+    isDemo,
     initialView,
-    recommendation: contextRecommendation,
-    raci: useDemo ? DEMO_RACI : canViewRaci ? projectRaci || [] : [],
+    recommendation,
+    raci: canViewRaci ? projectRaci || [] : [],
     permissions: {
       staff,
       canEdit,
@@ -294,24 +230,24 @@ export async function GET(request: NextRequest) {
       projects: portfolioProjects || [],
       activity: activity || [],
       summary: {
-        activeIntakes: (portfolioProjects || []).filter(
+        activeIntakes: realProjects.filter(
           (item) =>
             item.status === "draft" ||
             item.status === "submitted" ||
             item.status === "in_review"
         ).length,
-        recommendations: (recommendations || []).filter(
+        recommendations: realRecommendations.filter(
           (item) => item.status === "ready" || item.status === "approved"
         ).length,
-        openRaci: openRaci.length,
-        overdueRaci: openRaci.filter(
+        openRaci: realOpenRaci.length,
+        overdueRaci: realOpenRaci.filter(
           (item) => item.due_date && item.due_date < today
         ).length,
         awaitingInputs,
         readyForReview,
         repositoryProjects: caseStudyCount || 0,
         exportsGenerated: (exports || []).filter(
-          (item) => item.status === "ready"
+          (item) => item.status === "ready" && realProjectIds.has(item.project_id)
         ).length,
       },
     },

@@ -599,13 +599,6 @@
   }
 
   async function requestExport(exportType, button) {
-    if (context.isDemo) {
-      window.toast(
-        "Demo reports are for presentation only. Create a client project to generate stored exports.",
-        "info"
-      );
-      return;
-    }
     if (!project) {
       window.toast("Select a project before exporting.", "err");
       return;
@@ -932,7 +925,7 @@
         button.style.display = "none";
       }
       if (/edit raci matrix/i.test(button.textContent)) {
-        if (!permissions.staff || context.isDemo) {
+        if (!permissions.staff) {
           button.style.display = "none";
         } else {
           button.onclick = null;
@@ -1011,7 +1004,7 @@
           ? String(payload.hc1 || 0) + " → " + String(payload.hc24 || payload.hc1 || 0)
           : "—";
       [
-        tenantName,
+        item.is_demo ? tenantName + " (Demo)" : tenantName,
         payload.city || "—",
         headcount,
         item.status.replace("_", " "),
@@ -1022,6 +1015,7 @@
           const cell = row.insertCell();
           cell.textContent = text;
           if (index === 0) cell.style.fontWeight = "700";
+          if (index === 0 && item.is_demo) cell.style.color = "var(--orange)";
         }
       );
       const action = row.insertCell();
@@ -1126,7 +1120,9 @@
           notice.style.cssText =
             "margin-bottom:14px;border-left:3px solid var(--orange);";
           notice.innerHTML =
-            "<b>Demonstration data.</b> This anonymized project appears only because no real clients or projects exist. Onboard a client to replace it.";
+            "<b>Demonstration client.</b> " +
+            escapeHtml(tenantName) +
+            " is an anonymized sample kept permanently for walkthroughs. It is excluded from your portfolio totals and can be shown alongside real clients.";
           body.prepend(notice);
         }
       );
