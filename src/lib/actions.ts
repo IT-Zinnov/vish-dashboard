@@ -260,21 +260,17 @@ export async function deleteTenantAction(tenantId: string) {
     .eq("tenant_id", tenantId);
   const memberIds = (members || []).map((member) => member.id);
   if (memberIds.length) {
-    const { error: revokeError } = await admin
-      .from("profiles")
-      .update({
-        tenant_id: null,
-        role: "client_viewer",
-        access_revoked_at: new Date().toISOString(),
-        access_revoked_by: user!.id,
-      })
-      .in("id", memberIds);
-    if (revokeError) {
-      return {
-        error: /access_revoked/i.test(revokeError.message)
-          ? "Run supabase/migrations/007_admin_lifecycle.sql first."
-          : revokeError.message,
-      };
+    for (const memberId of memberIds) {
+      if (memberId === user!.id) {
+        return {
+          error: "A platform admin attached to this client cannot delete their own account.",
+        };
+      }
+      const { error: deleteUserError } =
+        await admin.auth.admin.deleteUser(memberId);
+      if (deleteUserError) {
+        return { error: deleteUserError.message };
+      }
     }
   }
 

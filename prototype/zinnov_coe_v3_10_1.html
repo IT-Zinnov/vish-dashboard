@@ -1723,15 +1723,15 @@ textarea.fc{resize:vertical;min-height:68px}
   <div class="pg-body">
     <div class="g3" id="repoGrid" style="gap:1rem;">
 
-      <!-- FEATURED: eBay -->
+      <!-- FEATURED: anonymized e-commerce case study -->
       <div class="repo-feature repo-item" data-city="Bangalore" data-industry="eCommerce" data-name="ebay india gcc" onclick="openEbayDetail()">
         <div class="repo-banner" id="ebayBanner">
-          <span class="rb-logo">eBay</span>
+          <span class="rb-logo">Fortune 500</span>
           <span class="rb-badge badge bg-green"><span class="dot dot-green"></span> Delivered</span>
           <span class="rb-city"><i class="ti ti-map-pin"></i> Bangalore</span>
         </div>
         <div class="repo-feature-body">
-          <div style="font-size:18px;font-weight:800;color:var(--navy);">eBay — India GCC</div>
+          <div style="font-size:18px;font-weight:800;color:var(--navy);">Fortune 500 E-commerce Company — India GCC</div>
           <div class="xs muted" style="margin-top:3px;"><i class="ti ti-map-pin" style="font-size:12px;vertical-align:-1px;"></i> Embassy Tech Village · ORR · Bangalore</div>
           <div class="rf-stat-grid">
             <div class="rf-stat"><div class="s-l"><i class="ti ti-users"></i> Total Seats</div><div class="s-v">1,700+</div></div>
@@ -1751,15 +1751,15 @@ textarea.fc{resize:vertical;min-height:68px}
         </div>
       </div>
 
-      <!-- FEATURED: Meltwater -->
+      <!-- FEATURED: anonymized media-intelligence case study -->
       <div class="repo-feature repo-item" data-city="Hyderabad" data-industry="Technology" data-name="meltwater" onclick="openMwDetail()">
         <div class="repo-banner" id="mwBanner">
-          <span class="rb-logo">Meltwater</span>
+          <span class="rb-logo">Global SaaS</span>
           <span class="rb-badge badge bg-green"><span class="dot dot-green"></span> Delivered</span>
           <span class="rb-city"><i class="ti ti-map-pin"></i> Hyderabad</span>
         </div>
         <div class="repo-feature-body">
-          <div style="font-size:18px;font-weight:800;color:var(--navy);">Meltwater — Hyderabad</div>
+          <div style="font-size:18px;font-weight:800;color:var(--navy);">Global Media Intelligence Company — Hyderabad</div>
           <div class="xs muted" style="margin-top:3px;"><i class="ti ti-map-pin" style="font-size:12px;vertical-align:-1px;"></i> Aurobindo Orbit · HITECH City · Hyderabad</div>
           <div class="rf-stat-grid">
             <div class="rf-stat"><div class="s-l"><i class="ti ti-users"></i> Total Seats</div><div class="s-v">113</div></div>
@@ -1811,13 +1811,13 @@ textarea.fc{resize:vertical;min-height:68px}
 
 <!-- ══ REPOSITORY MODALS ══ -->
 
-<!-- eBay detail -->
+<!-- Anonymized e-commerce detail -->
 <div class="rmodal" id="repoDetailModal">
   <div class="rmodal-box wide">
     <button class="rmodal-close" onclick="closeRmodal('repoDetailModal')" title="Close">&times;</button>
     <div class="repo-banner" id="ebayBannerLg" style="min-height:230px;border-radius:14px 14px 0 0;"></div>
     <div class="rmodal-bd">
-      <div style="font-size:20px;font-weight:800;color:var(--navy);">eBay — India GCC</div>
+      <div style="font-size:20px;font-weight:800;color:var(--navy);">Fortune 500 E-commerce Company — India GCC</div>
       <div class="xs muted" style="margin-top:3px;"><i class="ti ti-map-pin" style="font-size:12px;vertical-align:-1px;"></i> Embassy Tech Village · ORR · Bangalore</div>
       <div class="rf-stat-grid" style="grid-template-columns:repeat(4,1fr);">
         <div class="rf-stat"><div class="s-l"><i class="ti ti-users"></i> Total Seats</div><div class="s-v">1,700+</div><div class="xs muted" style="margin-top:2px;">521 + 483 + 683</div></div>
@@ -1834,13 +1834,13 @@ textarea.fc{resize:vertical;min-height:68px}
   </div>
 </div>
 
-<!-- Meltwater detail -->
+<!-- Anonymized media-intelligence detail -->
 <div class="rmodal" id="repoDetailModalMw">
   <div class="rmodal-box wide">
     <button class="rmodal-close" onclick="closeRmodal('repoDetailModalMw')" title="Close">&times;</button>
     <div class="repo-banner" id="mwBannerLg" style="min-height:230px;border-radius:14px 14px 0 0;"><span class="rb-city"><i class="ti ti-map-pin"></i> Hyderabad</span></div>
     <div class="rmodal-bd">
-      <div style="font-size:20px;font-weight:800;color:var(--navy);">Meltwater — Hyderabad</div>
+      <div style="font-size:20px;font-weight:800;color:var(--navy);">Global Media Intelligence Company — Hyderabad</div>
       <div class="xs muted" style="margin-top:3px;"><i class="ti ti-map-pin" style="font-size:12px;vertical-align:-1px;"></i> Aurobindo Orbit · HITECH City · Hyderabad</div>
       <div class="rf-stat-grid" style="grid-template-columns:repeat(4,1fr);">
         <div class="rf-stat"><div class="s-l"><i class="ti ti-users"></i> Total Seats</div><div class="s-v">113</div></div>
@@ -3106,8 +3106,8 @@ function aiResizeCharts(){ ['cSummaryDonut','cScaleUp'].forEach(id=>{ if(dashCha
 ═══════════════════════════════════════════════════════ */
 let repoActive='ebay', repoAgreed=false, repoPending=null, lbIndex=0;
 const PROJECT_META = {
-  ebay:      {name:'eBay India GCC',       loc:'Embassy Tech Village · ORR · Bangalore'},
-  meltwater: {name:'Meltwater — Hyderabad', loc:'Aurobindo Orbit · HITECH City · Hyderabad'}
+  ebay:      {name:'Fortune 500 E-commerce Company — India GCC', loc:'Bangalore, India'},
+  meltwater: {name:'Global Media Intelligence Company — Hyderabad', loc:'Hyderabad, India'}
 };
 function proj(){ return (window.__REPO && window.__REPO[repoActive]) || {items:[],pdf:null}; }
 function openRmodal(id){ var el=document.getElementById(id); if(el) el.classList.add('open'); }

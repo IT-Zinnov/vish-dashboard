@@ -568,6 +568,10 @@
   }
 
   async function recommendationAction(method, action) {
+    if (context.isDemo) {
+      window.toast("This is a read-only demonstration project.", "info");
+      return;
+    }
     if (!project) {
       window.toast("Create or select a project first.", "err");
       return;
@@ -595,6 +599,13 @@
   }
 
   async function requestExport(exportType, button) {
+    if (context.isDemo) {
+      window.toast(
+        "Demo reports are for presentation only. Create a client project to generate stored exports.",
+        "info"
+      );
+      return;
+    }
     if (!project) {
       window.toast("Select a project before exporting.", "err");
       return;
@@ -781,7 +792,7 @@
         button.style.display = "none";
       }
       if (/approve & send to raci/i.test(button.textContent)) {
-        if (!permissions.staff) {
+        if (!permissions.staff || context.isDemo) {
           button.style.display = "none";
         } else {
           button.style.display = "";
@@ -800,7 +811,10 @@
       ) {
         button.style.display = "none";
       }
-      if (!permissions.staff && /regenerate/i.test(button.textContent)) {
+      if (
+        (!permissions.staff || context.isDemo) &&
+        /regenerate/i.test(button.textContent)
+      ) {
         button.style.display = "none";
       }
     });
@@ -828,7 +842,7 @@
     startIntakeButtons.forEach((button) => {
       button.onclick = null;
       button.addEventListener("click", () => {
-        if (!project) {
+        if (!project || context.isDemo) {
           window.parent.location.href = permissions.staff ? "/master" : "/portal";
           return;
         }
@@ -918,7 +932,7 @@
         button.style.display = "none";
       }
       if (/edit raci matrix/i.test(button.textContent)) {
-        if (!permissions.staff) {
+        if (!permissions.staff || context.isDemo) {
           button.style.display = "none";
         } else {
           button.onclick = null;
@@ -1100,6 +1114,22 @@
     if (homeTitle && project) {
       homeTitle.textContent =
         tenantName + " · " + projectName + " · " + project.status.replace("_", " ");
+    }
+
+    if (context.isDemo) {
+      ["#pg-home .pg-body", "#pg-ai .pg-body", "#pg-dashboard .pg-body"].forEach(
+        (selector) => {
+          const body = document.querySelector(selector);
+          if (!body || body.querySelector(".coe-demo-notice")) return;
+          const notice = document.createElement("div");
+          notice.className = "note coe-demo-notice";
+          notice.style.cssText =
+            "margin-bottom:14px;border-left:3px solid var(--orange);";
+          notice.innerHTML =
+            "<b>Demonstration data.</b> This anonymized project appears only because no real clients or projects exist. Onboard a client to replace it.";
+          body.prepend(notice);
+        }
+      );
     }
 
   }

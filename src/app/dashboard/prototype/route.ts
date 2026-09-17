@@ -3,11 +3,58 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getUserAllowingCookieFallback } from "@/lib/supabase/get-user";
-import type { AppRole } from "@/lib/types";
+import { generateRecommendation } from "@/lib/recommendation";
+import type { AppRole, IntakePayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 let prototypeTemplate: Promise<string> | null = null;
+
+const DEMO_INTAKE = {
+  org: "Fortune 500 Technology Company",
+  parent: "Global Technology Group",
+  industry: "Technology",
+  requestType: "New setup",
+  contactName: "Demo Sponsor",
+  contactEmail: "demo@example.com",
+  objective: "Establish a scalable India GCC for engineering and product delivery.",
+  officeType: "GCC",
+  workModel: "Hybrid",
+  hours: "Standard business hours (9–6)",
+  primaryFn: "Engineering / R&D",
+  phasedOcc: "Yes — Interim / Temp Space",
+  hc1: 500,
+  hc3: 575,
+  hc6: 650,
+  hc12: 750,
+  hc24: 850,
+  density: 100,
+  workspaceStyle: "Activity-based",
+  kickoff: "2026-01",
+  golive: "2026-06",
+  urgency: "Standard",
+  deviceType: "Laptop",
+  devices: 525,
+} satisfies IntakePayload;
+
+const DEMO_RACI = [
+  ["Real Estate Strategy", "RE Program Lead", "Executive Sponsor"],
+  ["Design & Build", "Workplace Delivery Lead", "RE Program Lead"],
+  ["IT Infrastructure", "IT Infrastructure Lead", "Technology Sponsor"],
+  ["Facilities Management", "Facilities Lead", "RE Program Lead"],
+  ["Change & Communications", "Change Lead", "HR Sponsor"],
+].map(([workstream, responsible, accountable], index) => ({
+  id: `demo-raci-${index + 1}`,
+  workstream,
+  responsible,
+  accountable,
+  consulted: "Cross-functional team",
+  informed: "Client stakeholders",
+  due_date: null,
+  status: "assigned",
+  locked: true,
+  sort_order: index,
+}));
 
 function getPrototypeTemplate() {
   if (!prototypeTemplate) {
@@ -169,6 +216,37 @@ export async function GET(request: NextRequest) {
   const openRaci = (raciRows || []).filter(
     (row) => row.status !== "completed"
   );
+  const useDemo =
+    staff && !project && (portfolioProjects || []).length === 0;
+  const demoProject = useDemo
+    ? {
+        id: "demo-project",
+        tenant_id: "demo-tenant",
+        name: "India GCC Workplace Demo",
+        status: "published",
+        created_at: "2026-01-01T00:00:00.000Z",
+        submitted_at: "2026-01-02T00:00:00.000Z",
+        published_at: "2026-01-03T00:00:00.000Z",
+        raci_published_at: "2026-01-03T00:00:00.000Z",
+      }
+    : null;
+  const contextProject = demoProject || project;
+  const contextTenant = useDemo
+    ? {
+        id: "demo-tenant",
+        name: "Fortune 500 Technology Company",
+        slug: "fortune-500-technology-demo",
+      }
+    : tenant;
+  const contextRecommendation = useDemo
+    ? {
+        id: "demo-recommendation",
+        version: 1,
+        status: "approved",
+        output: generateRecommendation(DEMO_INTAKE),
+        generated_at: "2026-01-02T00:00:00.000Z",
+      }
+    : recommendation;
   const canEdit =
     Boolean(project) &&
     project?.status === "draft" &&
@@ -179,12 +257,14 @@ export async function GET(request: NextRequest) {
   const awaitingInputs = (portfolioProjects || []).filter(
     (item) => item.status === "draft"
   ).length;
-  const intelligenceReady = Boolean(recommendation);
-  const raciPublished = Boolean(
-    project?.raci_published_at &&
-      project &&
-      ["published", "execution"].includes(project.status)
-  );
+  const intelligenceReady = Boolean(contextRecommendation);
+  const raciPublished =
+    useDemo ||
+    Boolean(
+      project?.raci_published_at &&
+        project &&
+        ["published", "execution"].includes(project.status)
+    );
   const canViewRaci = staff || raciPublished;
   const context = {
     user: profile
@@ -195,12 +275,13 @@ export async function GET(request: NextRequest) {
           role,
         }
       : { id: user.id, name: null, email: user.email, role: null },
-    tenant,
-    project,
-    intake: intake?.payload ?? {},
+    tenant: contextTenant,
+    project: contextProject,
+    intake: useDemo ? DEMO_INTAKE : intake?.payload ?? {},
+    isDemo: useDemo,
     initialView,
-    recommendation,
-    raci: canViewRaci ? projectRaci || [] : [],
+    recommendation: contextRecommendation,
+    raci: useDemo ? DEMO_RACI : canViewRaci ? projectRaci || [] : [],
     permissions: {
       staff,
       canEdit,

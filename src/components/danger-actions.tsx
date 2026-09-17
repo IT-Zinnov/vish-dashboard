@@ -72,7 +72,7 @@ export function DeleteTenantButton({
   return (
     <DangerButton
       label="Delete client"
-      confirmation={`Permanently delete client “${tenantName}” and every project under it? Client-user access will also be revoked. This cannot be undone.`}
+      confirmation={`Permanently delete client “${tenantName}”, every project under it, and its client-user accounts? Their email identities will be removed from Supabase Auth. This cannot be undone.`}
       run={() => deleteTenantAction(tenantId)}
     />
   );
