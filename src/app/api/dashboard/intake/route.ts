@@ -30,17 +30,25 @@ const INTAKE_KEYS = [
   "urgency",
   "deviceType",
   "devices",
+  "requiredSpaces",
 ] as const;
 
 function cleanPayload(input: unknown): IntakePayload {
   if (!input || typeof input !== "object") return {};
   const source = input as Record<string, unknown>;
-  const payload: Record<string, string | number> = {};
+  const payload: Record<string, string | number | string[]> = {};
 
   for (const key of INTAKE_KEYS) {
     const value = source[key];
     if (typeof value === "string") payload[key] = value.slice(0, 5000);
     if (typeof value === "number" && Number.isFinite(value)) payload[key] = value;
+    if (
+      key === "requiredSpaces" &&
+      Array.isArray(value) &&
+      value.every((item) => typeof item === "string")
+    ) {
+      payload[key] = value.slice(0, 25).map((item) => item.slice(0, 120));
+    }
   }
 
   return payload as IntakePayload;

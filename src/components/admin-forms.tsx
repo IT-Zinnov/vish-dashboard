@@ -70,7 +70,8 @@ export function InviteForm({ tenants }: { tenants: Tenant[] }) {
       {error && <p className="sm:col-span-4 text-xs text-red-600">{error}</p>}
       {ok && (
         <p className="sm:col-span-4 text-xs text-green-700">
-          Invite saved. Ask them to sign up with that exact email — they will be attached to the client automatically.
+          Invitation email sent. The recipient can open the secure link, set a
+          password, and enter the assigned client dashboard directly.
         </p>
       )}
     </form>

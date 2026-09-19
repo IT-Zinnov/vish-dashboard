@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "verify:exports": "node --experimental-strip-types scripts/verify-exports.ts"
+    "verify:exports": "node --experimental-strip-types scripts/verify-exports.ts",
+    "verify:workflow": "node scripts/verify-workflow.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

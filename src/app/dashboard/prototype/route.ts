@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
       ? supabase
           .from("raci_rows")
           .select(
-            "id, workstream, responsible, accountable, consulted, informed, status, due_date, locked, sort_order"
+            "id, workstream, responsible, responsible_email, accountable, accountable_email, consulted, consulted_email, informed, informed_email, status, due_date, locked, sort_order"
           )
           .eq("project_id", project.id)
           .order("sort_order")
@@ -225,6 +225,8 @@ export async function GET(request: NextRequest) {
       intelligenceReady,
       raciPublished,
       canViewRaci,
+      canViewPricing: staff,
+      executionUnlocked: staff || raciPublished,
     },
     portfolio: {
       projects: portfolioProjects || [],

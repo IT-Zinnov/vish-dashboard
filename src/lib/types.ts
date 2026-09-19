@@ -66,7 +66,22 @@ export type IntakePayload = {
   urgency?: string;
   deviceType?: string;
   devices?: number;
+  requiredSpaces?: string[];
 };
+
+export const REQUIRED_SPACES = [
+  "Conference Room / Townhall",
+  "Focus / Quiet pods",
+  "Collaboration / Huddle zones",
+  "Training / Classroom",
+  "Cafeteria / Pantry",
+  "Reception / Lobby",
+  "Server / IT room",
+  "Gym",
+  "Research Lab",
+  "Prayer / Spiritual room",
+  "Wellness / Mother's room",
+] as const;
 
 export const DEFAULT_RACI = [
   { workstream: "Real Estate Strategy", responsible: "", accountable: "Director", consulted: "Design Team", informed: "Finance" },

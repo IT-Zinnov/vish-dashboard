@@ -32,6 +32,7 @@ npm install
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=server-only-secret
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
 Find the service-role key in Supabase → Project Settings → API. It bypasses
@@ -47,7 +48,8 @@ variables. Never give it a `NEXT_PUBLIC_` prefix.
    - `supabase/migrations/007_admin_lifecycle.sql`
    - `supabase/migrations/008_cleanup_demo_and_deleted_accounts.sql`
    - `supabase/migrations/009_demo_clients.sql` — seeds the two permanent demo
-     clients. Re-run it any time to restore them after edits or deletion.
+     clients. To restore them later, re-run 009 and then 010.
+   - `supabase/migrations/010_client_workflow_enhancements.sql`
 5. Auth → Providers → Email: you can turn **off** “Confirm email” while testing locally
 
 Office networks that intercept HTTPS: local `npm run dev` uses Node `--use-system-ca`. Vercel does not need that flag.
@@ -71,7 +73,18 @@ Sign up with **your** email first (you become master). Then onboard a client, in
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` and/or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
-5. Deploy. After you have the `*.vercel.app` URL, in Supabase → Authentication → URL Configuration set **Site URL** to that origin and add it under **Redirect URLs**.
+   - `NEXT_PUBLIC_SITE_URL` — your production origin, for example
+     `https://your-project.vercel.app`
+5. Deploy. In Supabase → Authentication → URL Configuration:
+   - Set **Site URL** to the production origin.
+   - Add `https://your-project.vercel.app/auth/callback` under **Redirect URLs**.
+   - Also add `https://your-project.vercel.app/auth/accept-invite`.
+   - Keep both `http://localhost:3000/auth/callback` and
+     `http://localhost:3000/auth/accept-invite` while developing locally.
+
+Client invitations use Supabase Auth's built-in email sender. Its free default
+mailer has low rate limits; use Supabase custom SMTP later if invitation volume
+increases.
 
 ## GitHub
 

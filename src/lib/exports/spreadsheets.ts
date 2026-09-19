@@ -81,6 +81,7 @@ function section(sheet: ExcelJS.Worksheet, title: string) {
   cell.font = { bold: true, color: { argb: WHITE }, size: 11 };
   cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
   cell.alignment = { vertical: "middle" };
+  return row.number;
 }
 
 function keyValues(
@@ -193,6 +194,12 @@ function addSourceIntakeSheet(book: ExcelJS.Workbook, data: ProjectExportData) {
     ["Month 24 headcount", data.intake.hc24],
     ["Density (sq ft/FTE)", data.intake.density],
     ["Workspace style", data.intake.workspaceStyle],
+    [
+      "Required spaces",
+      data.intake.requiredSpaces?.length
+        ? data.intake.requiredSpaces.join(", ")
+        : "Not captured",
+    ],
     ["Kickoff", data.intake.kickoff],
     ["Target go-live", data.intake.golive],
     ["Urgency", data.intake.urgency],
@@ -231,6 +238,12 @@ export async function buildIntakeWorkbook(data: ProjectExportData) {
     ["Workspace style", data.intake.workspaceStyle],
     ["Phased occupancy", data.intake.phasedOcc],
     ["Density (sq ft/FTE)", data.intake.density],
+    [
+      "Required spaces",
+      data.intake.requiredSpaces?.length
+        ? data.intake.requiredSpaces.join(", ")
+        : "Not captured",
+    ],
   ]);
   section(sheet, "Headcount ramp");
   table(
@@ -335,23 +348,47 @@ export async function buildDashboardWorkbook(data: ProjectExportData) {
 
 function addRaciSheet(book: ExcelJS.Workbook, data: ProjectExportData) {
   const sheet = titleSheet(book, "RACI", "RACI Assignment Matrix", data);
-  section(sheet, "Published assignments");
+  for (const row of [1, 2, 3, 4]) {
+    sheet.unMergeCells(`A${row}:G${row}`);
+    sheet.mergeCells(`A${row}:K${row}`);
+  }
+  const sectionRow = section(sheet, "Published assignments");
+  sheet.unMergeCells(`A${sectionRow}:G${sectionRow}`);
+  sheet.mergeCells(`A${sectionRow}:K${sectionRow}`);
   table(
     sheet,
-    ["Workstream", "Responsible", "Accountable", "Consulted", "Informed", "Due date", "Status"],
+    [
+      "Workstream",
+      "Responsible",
+      "Responsible email",
+      "Accountable",
+      "Accountable email",
+      "Consulted",
+      "Consulted email",
+      "Informed",
+      "Informed email",
+      "Due date",
+      "Status",
+    ],
     data.raci.map((row) => [
       row.workstream,
       row.responsible,
+      row.responsible_email,
       row.accountable,
+      row.accountable_email,
       row.consulted,
+      row.consulted_email,
       row.informed,
+      row.informed_email,
       row.due_date,
       human(row.status),
     ]),
     `Raci${book.worksheets.length}`
   );
   sheet.getColumn(1).width = 30;
-  for (let column = 2; column <= 5; column += 1) sheet.getColumn(column).width = 24;
+  for (let column = 2; column <= 9; column += 1) sheet.getColumn(column).width = 24;
+  sheet.getColumn(10).width = 15;
+  sheet.getColumn(11).width = 16;
   return sheet;
 }
 
@@ -401,19 +438,41 @@ export function intakeCsvRows(data: ProjectExportData): CellValue[][] {
       ["Urgency", data.intake.urgency],
       ["Device type", data.intake.deviceType],
       ["Devices", data.intake.devices],
+      [
+        "Required spaces",
+        data.intake.requiredSpaces?.length
+          ? data.intake.requiredSpaces.join(", ")
+          : "Not captured",
+      ],
     ] as Array<[string, CellValue]>).map(([field, value]) => ["Intake", field, value]),
   ];
 }
 
 export function raciCsvRows(data: ProjectExportData): CellValue[][] {
   return [
-    ["Workstream", "Responsible", "Accountable", "Consulted", "Informed", "Due date", "Status"],
+    [
+      "Workstream",
+      "Responsible",
+      "Responsible email",
+      "Accountable",
+      "Accountable email",
+      "Consulted",
+      "Consulted email",
+      "Informed",
+      "Informed email",
+      "Due date",
+      "Status",
+    ],
     ...data.raci.map((row) => [
       row.workstream,
       row.responsible,
+      row.responsible_email,
       row.accountable,
+      row.accountable_email,
       row.consulted,
+      row.consulted_email,
       row.informed,
+      row.informed_email,
       row.due_date,
       human(row.status),
     ]),

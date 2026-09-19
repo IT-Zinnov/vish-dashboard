@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
       admin
         .from("raci_rows")
         .select(
-          "workstream, responsible, accountable, consulted, informed, due_date, status"
+          "workstream, responsible, responsible_email, accountable, accountable_email, consulted, consulted_email, informed, informed_email, due_date, status"
         )
         .eq("project_id", projectId)
         .order("sort_order"),

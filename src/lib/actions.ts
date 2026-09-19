@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { requireStaff, requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateAndStoreRecommendation } from "@/lib/recommendation-service";
@@ -14,6 +15,8 @@ function slugify(name: string) {
     .replace(/(^-|-$)/g, "")
     .slice(0, 48);
 }
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function signOutAction() {
   const { supabase } = await requireUser();
@@ -53,17 +56,91 @@ export async function inviteUserAction(formData: FormData) {
     return { error: "Pick a client company for this invite." };
   }
 
-  const { error } = await supabase.from("invites").insert({
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (adminError) {
+    return {
+      error:
+        adminError instanceof Error
+          ? adminError.message
+          : "The invitation service is not configured.",
+    };
+  }
+  const { data: existingProfile } = await admin
+    .from("profiles")
+    .select("id")
+    .ilike("email", email)
+    .maybeSingle();
+  if (existingProfile) {
+    return {
+      error:
+        "This email already has an account. Use “Attach a user who already signed up” instead.",
+    };
+  }
+
+  const { data: invite, error } = await supabase.from("invites").insert({
     email,
     role,
     tenant_id: role.startsWith("client") ? tenantId : null,
     invited_by: user!.id,
-  });
+  }).select("id").single();
   if (error) return { error: error.message };
+
+  try {
+    const requestHeaders = await headers();
+    const siteUrl = (
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      requestHeaders.get("origin") ||
+      "http://localhost:3000"
+    ).replace(/\/$/, "");
+    const { error: deliveryError } = await admin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        // Supabase's default invite template may return tokens in the URL hash.
+        // Landing on a browser page preserves that hash so createBrowserClient
+        // can establish the session. The callback route remains available for
+        // PKCE/code-based templates.
+        redirectTo: `${siteUrl}/auth/accept-invite`,
+        data: {
+          invited_role: role,
+          invited_tenant_id: role.startsWith("client") ? tenantId : null,
+        },
+      }
+    );
+    if (deliveryError) {
+      const { data: createdProfile } = await admin
+        .from("profiles")
+        .select("id")
+        .ilike("email", email)
+        .maybeSingle();
+      if (createdProfile) {
+        await admin.auth.admin.deleteUser(createdProfile.id);
+      }
+      await admin.from("invites").delete().eq("id", invite.id);
+      return { error: `Invite email was not sent: ${deliveryError.message}` };
+    }
+  } catch (deliveryError) {
+    const { data: createdProfile } = await admin
+      .from("profiles")
+      .select("id")
+      .ilike("email", email)
+      .maybeSingle();
+    if (createdProfile) {
+      await admin.auth.admin.deleteUser(createdProfile.id);
+    }
+    await admin.from("invites").delete().eq("id", invite.id);
+    return {
+      error:
+        deliveryError instanceof Error
+          ? deliveryError.message
+          : "Invite email could not be sent.",
+    };
+  }
 
   revalidatePath("/master");
   if (tenantId) revalidatePath(`/master/tenants/${tenantId}`);
-  return { ok: true };
+  return { ok: true, delivered: true };
 }
 
 export async function assignUserAction(formData: FormData) {
@@ -400,7 +477,14 @@ export async function reopenIntakeAction(projectId: string) {
   const { supabase } = await requireStaff();
   const { error } = await supabase
     .from("projects")
-    .update({ status: "draft", submitted_at: null, submitted_by: null })
+    .update({
+      status: "draft",
+      submitted_at: null,
+      submitted_by: null,
+      published_at: null,
+      raci_published_at: null,
+      raci_published_by: null,
+    })
     .eq("id", projectId);
   if (error) return { error: error.message };
   revalidatePath(`/master/projects/${projectId}`);
@@ -480,16 +564,28 @@ export async function publishRaciAction(projectId: string) {
 
   const { data: rows, error: rowsError } = await supabase
     .from("raci_rows")
-    .select("responsible, accountable")
+    .select(
+      "responsible, responsible_email, accountable, accountable_email, consulted, consulted_email, informed, informed_email"
+    )
     .eq("project_id", projectId);
   if (rowsError) return { error: rowsError.message };
   if (
     !rows?.length ||
-    rows.some((row) => !row.responsible?.trim() || !row.accountable?.trim())
+    rows.some(
+      (row) =>
+        !row.responsible?.trim() ||
+        !row.accountable?.trim() ||
+        !row.consulted?.trim() ||
+        !row.informed?.trim() ||
+        !EMAIL_PATTERN.test(row.responsible_email || "") ||
+        !EMAIL_PATTERN.test(row.accountable_email || "") ||
+        !EMAIL_PATTERN.test(row.consulted_email || "") ||
+        !EMAIL_PATTERN.test(row.informed_email || "")
+    )
   ) {
     return {
       error:
-        "Assign both Responsible and Accountable for every workstream before publishing.",
+        "Add a valid name and email for Responsible, Accountable, Consulted, and Informed on every workstream before publishing.",
     };
   }
 
@@ -497,7 +593,7 @@ export async function publishRaciAction(projectId: string) {
   const { data: project, error } = await supabase
     .from("projects")
     .update({
-      status: "published",
+      status: "execution",
       published_at: now,
       raci_published_at: now,
       raci_published_by: user!.id,
@@ -512,7 +608,7 @@ export async function publishRaciAction(projectId: string) {
     project_id: projectId,
     actor_id: user!.id,
     event_type: "raci.published",
-    summary: "RACI assignments and delivery plan published to the client",
+    summary: "RACI published and project moved directly into execution",
   });
 
   revalidatePath(`/master/projects/${projectId}`);
@@ -526,9 +622,13 @@ export async function saveRaciAction(
   rows: {
     id: string;
     responsible: string;
+    responsibleEmail: string;
     accountable: string;
+    accountableEmail: string;
     consulted: string;
+    consultedEmail: string;
     informed: string;
+    informedEmail: string;
     dueDate?: string;
     status?: string;
   }[]
@@ -548,13 +648,32 @@ export async function saveRaciAction(
     };
   }
   for (const row of rows) {
+    const contacts = [
+      ["Responsible", row.responsible, row.responsibleEmail],
+      ["Accountable", row.accountable, row.accountableEmail],
+      ["Consulted", row.consulted, row.consultedEmail],
+      ["Informed", row.informed, row.informedEmail],
+    ];
+    for (const [role, name, email] of contacts) {
+      if ((name || email) && (!name.trim() || !EMAIL_PATTERN.test(email))) {
+        return {
+          error: `${role} requires both a name and a valid email address.`,
+        };
+      }
+    }
+  }
+  for (const row of rows) {
     const { error } = await supabase
       .from("raci_rows")
       .update({
         responsible: row.responsible,
+        responsible_email: row.responsibleEmail || null,
         accountable: row.accountable,
+        accountable_email: row.accountableEmail || null,
         consulted: row.consulted,
+        consulted_email: row.consultedEmail || null,
         informed: row.informed,
+        informed_email: row.informedEmail || null,
         due_date: row.dueDate || null,
         status: row.status || "unassigned",
       })

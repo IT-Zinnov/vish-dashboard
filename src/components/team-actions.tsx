@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import {
-  advanceProjectAction,
   approveRecommendationAction,
   publishRaciAction,
   reopenIntakeAction,
@@ -14,9 +13,13 @@ type Row = {
   id: string;
   workstream: string;
   responsible: string | null;
+  responsible_email: string | null;
   accountable: string | null;
+  accountable_email: string | null;
   consulted: string | null;
+  consulted_email: string | null;
   informed: string | null;
+  informed_email: string | null;
   due_date?: string | null;
   status?: string | null;
 };
@@ -57,12 +60,7 @@ export function TeamActions({
         canPublish &&
         recommendationStatus === "approved" && (
         <button className="rounded-lg bg-navy px-3 py-1.5 text-xs text-white" onClick={() => run(() => publishRaciAction(projectId))}>
-          Publish RACI &amp; plan
-        </button>
-      )}
-      {status === "published" && (
-        <button className="rounded-lg bg-navy px-3 py-1.5 text-xs text-white" onClick={() => run(() => advanceProjectAction(projectId, "execution"))}>
-          Move to execution
+          Publish RACI &amp; start execution
         </button>
       )}
       {error && <span className="text-xs text-red-600">{error}</span>}
@@ -86,9 +84,13 @@ export function RaciEditor({ projectId, rows, canEdit }: { projectId: string; ro
       local.map((r) => ({
         id: r.id,
         responsible: r.responsible || "",
+        responsibleEmail: r.responsible_email || "",
         accountable: r.accountable || "",
+        accountableEmail: r.accountable_email || "",
         consulted: r.consulted || "",
+        consultedEmail: r.consulted_email || "",
         informed: r.informed || "",
+        informedEmail: r.informed_email || "",
         dueDate: r.due_date || "",
         status: r.status || "unassigned",
       }))
@@ -116,19 +118,37 @@ export function RaciEditor({ projectId, rows, canEdit }: { projectId: string; ro
             {local.map((r) => (
               <tr key={r.id} className="border-t border-slate-100">
                 <td className="py-2 font-medium">{r.workstream}</td>
-                {(["responsible", "accountable", "consulted", "informed"] as const).map((k) => (
+                {(["responsible", "accountable", "consulted", "informed"] as const).map((k) => {
+                  const emailKey = `${k}_email` as keyof Row;
+                  return (
                   <td key={k} className="py-2 pr-2">
                     {canEdit ? (
-                      <input
-                        className={inputClass}
-                        value={r[k] || ""}
-                        onChange={(e) => patch(r.id, k, e.target.value)}
-                      />
+                      <div className="min-w-44 space-y-1.5">
+                        <input
+                          className={inputClass}
+                          placeholder="Name"
+                          value={r[k] || ""}
+                          onChange={(e) => patch(r.id, k, e.target.value)}
+                        />
+                        <input
+                          type="email"
+                          className={inputClass}
+                          placeholder="Email address"
+                          value={(r[emailKey] as string | null) || ""}
+                          onChange={(e) => patch(r.id, emailKey, e.target.value)}
+                        />
+                      </div>
                     ) : (
-                      r[k] || "—"
+                      <div className="min-w-36">
+                        <div>{r[k] || "—"}</div>
+                        <div className="text-xs text-slate-500">
+                          {(r[emailKey] as string | null) || "No email"}
+                        </div>
+                      </div>
                     )}
                   </td>
-                ))}
+                  );
+                })}
                 <td className="py-2 pr-2">
                   {canEdit ? (
                     <input

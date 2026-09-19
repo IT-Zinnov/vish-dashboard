@@ -127,8 +127,9 @@
         const item = document.getElementById("sb-" + id);
         if (item) item.style.display = "none";
       });
-      const exec = document.getElementById("sb-exec");
-      if (exec && project?.status !== "execution") exec.style.display = "none";
+      document
+        .querySelectorAll("[onclick*=\"nav('pricing')\"]")
+        .forEach((control) => (control.style.display = "none"));
     }
 
     setNavigationLock(
@@ -151,6 +152,29 @@
       !permissions.raciPublished && !staff,
       "RACI will unlock after the delivery team publishes assignments."
     );
+    setNavigationLock(
+      "exec",
+      !permissions.raciPublished && !staff,
+      "Execution Plan unlocks automatically when the platform admin publishes RACI."
+    );
+    document.querySelectorAll("[onclick*=\"nav('exec')\"]").forEach((control) => {
+      if (staff || permissions.raciPublished || control.dataset.execLockWired) return;
+      control.dataset.execLockWired = "true";
+      control.style.opacity = "0.55";
+      control.style.cursor = "not-allowed";
+      control.addEventListener(
+        "click",
+        (event) => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          window.toast(
+            "Execution Plan unlocks automatically when RACI is published.",
+            "info"
+          );
+        },
+        true
+      );
+    });
     setWorkflowCardAccess();
 
     document.querySelectorAll(".sb-divider").forEach((divider) => {
@@ -179,13 +203,34 @@
     }
   }
 
+  function installNavigationGuard() {
+    if (window.nav?.__coeGuarded) return;
+    const originalNav = window.nav;
+    if (typeof originalNav !== "function") return;
+    const guardedNav = function (view) {
+      if (!permissions.staff && view === "pricing") {
+        window.toast("Pricing is available to the delivery team only.", "info");
+        return;
+      }
+      if (!permissions.staff && view === "exec" && !permissions.raciPublished) {
+        window.toast(
+          "Execution Plan unlocks automatically when RACI is published.",
+          "info"
+        );
+        return;
+      }
+      return originalNav.apply(this, arguments);
+    };
+    guardedNav.__coeGuarded = true;
+    window.nav = guardedNav;
+  }
+
   function setWorkflowCardAccess() {
     document.querySelectorAll("#pg-home .wf-card").forEach((card) => {
       const title = card.querySelector(".wf-title")?.textContent || "";
       if (
         !permissions.staff &&
-        (/pricing model|admin settings/i.test(title) ||
-          (/execution plan/i.test(title) && project?.status !== "execution"))
+        /pricing model|admin settings/i.test(title)
       ) {
         card.style.display = "none";
         return;
@@ -204,6 +249,10 @@
       if (/raci assignment center/i.test(title) && !permissions.raciPublished) {
         locked = !permissions.staff;
         message = "RACI unlocks after the platform admin publishes assignments.";
+      }
+      if (/execution plan/i.test(title) && !permissions.raciPublished) {
+        locked = !permissions.staff;
+        message = "Execution Plan unlocks automatically when RACI is published.";
       }
       card.dataset.locked = locked ? "true" : "false";
       card.dataset.lockMessage = message;
@@ -344,6 +393,19 @@
     setControl(document.getElementById("dtGolive"), intake.golive);
     setControl(controlForLabel("Timeline Urgency"), intake.urgency);
     setControl(controlForLabel("Primary Device Type"), intake.deviceType);
+    const spaceSelections = Array.isArray(intake.requiredSpaces)
+      ? intake.requiredSpaces
+      : null;
+    if (spaceSelections || Object.keys(intake).length) {
+      document.querySelectorAll("#s4 [data-space]").forEach((label) => {
+        const checkbox = label.querySelector('input[type="checkbox"]');
+        const checked = Boolean(
+          spaceSelections && spaceSelections.includes(label.dataset.space)
+        );
+        if (checkbox) checkbox.checked = checked;
+        label.classList.toggle("on", checked);
+      });
+    }
 
     if (typeof window.applyPhasedOccupancy === "function") {
       window.applyPhasedOccupancy();
@@ -389,6 +451,12 @@
       urgency: value(controlForLabel("Timeline Urgency")),
       deviceType: value(controlForLabel("Primary Device Type")),
       devices: number("itDevices"),
+      requiredSpaces: Array.from(
+        document.querySelectorAll("#s4 [data-space]")
+      )
+        .filter((label) => label.querySelector('input[type="checkbox"]')?.checked)
+        .map((label) => label.dataset.space)
+        .filter(Boolean),
     };
   }
 
@@ -642,15 +710,160 @@
     button.addEventListener("click", () => requestExport(exportType, button));
   }
 
+  function installPrintStyles() {
+    if (document.getElementById("coe-print-styles")) return;
+    const style = document.createElement("style");
+    style.id = "coe-print-styles";
+    style.textContent = `
+      .coe-print-meta { display: none; }
+      body.coe-print-mode.coe-print-ai #pg-ai .ai-panel,
+      body.coe-print-mode.coe-print-exec #pg-exec .exec-tab-panel {
+        display: block !important; visibility: visible !important;
+      }
+      @media print {
+        @page { size: A4 landscape; margin: 9mm; }
+        html, body { overflow: visible !important; height: auto !important; background: #fff !important; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .sidebar, .topnav, .toast-wrap, .rmodal, .lightbox { display: none !important; }
+        .main { margin-left: 0 !important; width: 100% !important; height: auto !important; }
+        .content { padding: 0 !important; overflow: visible !important; height: auto !important; }
+        body.coe-print-mode .pg { display: none !important; }
+        body.coe-print-ai #pg-ai,
+        body.coe-print-dashboard #pg-dashboard,
+        body.coe-print-exec #pg-exec { display: block !important; }
+        body.coe-print-mode .pg-hd { position: static !important; padding: 0 0 10px !important; }
+        body.coe-print-mode .pg-hd .fc-row,
+        body.coe-print-mode button,
+        body.coe-print-mode .tabs { display: none !important; }
+        body.coe-print-mode .pg-body { padding: 0 !important; overflow: visible !important; }
+        body.coe-print-mode .coe-print-meta {
+          display: block !important; margin: 0 0 12px; padding: 9px 12px;
+          border: 1px solid #d9e2f0; border-left: 4px solid #1255cc;
+          border-radius: 6px; font-size: 10px; color: #334155;
+        }
+        body.coe-print-ai #pg-ai .ai-panel,
+        body.coe-print-exec #pg-exec .exec-tab-panel {
+          display: block !important; visibility: visible !important;
+          break-before: page; page-break-before: always;
+          padding-top: 6px;
+        }
+        body.coe-print-ai #pg-ai .ai-panel::before,
+        body.coe-print-exec #pg-exec .exec-tab-panel::before {
+          content: attr(data-print-title); display: block; margin: 0 0 10px;
+          padding: 7px 10px; background: #0a1628; color: #fff;
+          border-radius: 5px; font-size: 13px; font-weight: 700;
+        }
+        body.coe-print-ai #pg-ai #ai-summary,
+        body.coe-print-exec #pg-exec #exec-phases {
+          break-before: auto; page-break-before: auto;
+        }
+        body.coe-print-mode .card,
+        body.coe-print-mode .chart-w,
+        body.coe-print-mode table { break-inside: avoid; page-break-inside: avoid; }
+        body.coe-print-mode canvas { max-width: 100% !important; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function resizeChartsForPrint() {
+    const instances = window.Chart?.instances
+      ? Object.values(window.Chart.instances)
+      : [];
+    instances.forEach((chart) => {
+      try {
+        chart.resize();
+        chart.update("none");
+      } catch {
+        // A hidden or already-destroyed chart can be ignored.
+      }
+    });
+  }
+
+  function printReport(view) {
+    if (!project) {
+      window.toast("Select a project before printing a report.", "err");
+      return;
+    }
+    installPrintStyles();
+    window.nav(view);
+    const panelTitles =
+      view === "ai"
+        ? {
+            "ai-summary": "Executive Summary",
+            "ai-workplace": "Workplace Configuration",
+            "ai-resource": "Resource Provisioning",
+            "ai-it": "IT Infrastructure",
+            "ai-risks": "Risks and Attention Points",
+            "ai-assumptions": "Assumptions",
+          }
+        : view === "exec"
+          ? {
+              "exec-phases": "Execution Phases",
+              "exec-gantt": "Execution Gantt",
+              "exec-handover": "Handover Workflow",
+            }
+          : {};
+    Object.entries(panelTitles).forEach(([id, title]) => {
+      document.getElementById(id)?.setAttribute("data-print-title", title);
+    });
+    if (view === "exec" && typeof window.initGantt === "function") {
+      window.initGantt();
+    }
+    const page = document.getElementById("pg-" + view);
+    const body = page?.querySelector(".pg-body");
+    if (body && !body.querySelector(".coe-print-meta")) {
+      const meta = document.createElement("div");
+      meta.className = "coe-print-meta";
+      meta.innerHTML =
+        "<b>" +
+        escapeHtml(context.tenant?.name || "Client") +
+        " — " +
+        escapeHtml(project.name) +
+        "</b><br>Generated " +
+        escapeHtml(new Date().toLocaleString()) +
+        (context.isDemo ? " · Demonstration data" : "") +
+        "<br><b>Required spaces:</b> " +
+        escapeHtml(
+          Array.isArray(intake.requiredSpaces) && intake.requiredSpaces.length
+            ? intake.requiredSpaces.join(", ")
+            : "Not captured"
+        );
+      body.prepend(meta);
+    }
+    document.body.classList.add("coe-print-mode", "coe-print-" + view);
+    const cleanup = () => {
+      document.body.classList.remove("coe-print-mode", "coe-print-" + view);
+      resizeChartsForPrint();
+    };
+    window.addEventListener("afterprint", cleanup, { once: true });
+    window.setTimeout(() => {
+      resizeChartsForPrint();
+      window.setTimeout(() => window.print(), 250);
+    }, 150);
+  }
+
+  function bindPrintButton(scope, pattern, view) {
+    const button = Array.from(scope.querySelectorAll("button")).find(
+      (candidate) =>
+        !candidate.dataset.exportWired && pattern.test(candidate.textContent)
+    );
+    if (!button) return;
+    button.dataset.exportWired = "true";
+    button.onclick = null;
+    button.addEventListener("click", () => printReport(view));
+  }
+
   function wireExports() {
     const home = document.getElementById("pg-home");
     const ai = document.getElementById("pg-ai");
     const dashboard = document.getElementById("pg-dashboard");
     const raci = document.getElementById("pg-raci");
+    const execution = document.getElementById("pg-exec");
 
     if (home) {
       bindExportButton(home, /^export excel/i, "intake_xlsx");
-      bindExportButton(home, /^generate pdf/i, "dashboard_pdf");
+      bindPrintButton(home, /^generate pdf/i, "dashboard");
       bindExportButton(home, /^intake summary/i, "intake_csv");
       bindExportButton(home, /^raci export/i, "raci_xlsx");
       const raciExport = Array.from(home.querySelectorAll("button")).find(
@@ -662,13 +875,16 @@
     }
     if (ai) {
       bindExportButton(ai, /^export excel/i, "intelligence_xlsx");
-      bindExportButton(ai, /^download pdf/i, "intelligence_pdf");
+      bindPrintButton(ai, /^download pdf/i, "ai");
     }
     if (dashboard) {
       bindExportButton(dashboard, /^export excel/i, "dashboard_xlsx");
-      bindExportButton(dashboard, /^generate pdf/i, "dashboard_pdf");
+      bindPrintButton(dashboard, /^generate pdf/i, "dashboard");
     }
     if (raci) bindExportButton(raci, /^export raci/i, "raci_xlsx");
+    if (execution) {
+      bindPrintButton(execution, /download standard pdf|download pdf/i, "exec");
+    }
 
     renderExportCenter();
 
@@ -768,7 +984,7 @@
       "</div>" +
       '<p class="sm muted mb3">' +
       escapeHtml(scopeMessage) +
-      " Files are stored privately and download links expire.</p>" +
+      " Generated spreadsheets are stored privately; print reports are saved through your browser's Save as PDF option.</p>" +
       '<div class="g2" id="coe-export-actions" style="gap:.75rem;"></div></div>' +
       '<div class="card"><div class="card-title">Export history</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>File</th><th>Type</th><th>Status</th><th>Created</th><th></th></tr></thead>' +
@@ -777,12 +993,18 @@
     const exportActions = [
       ["Intake Excel", "Structured workbook with all submitted inputs", "intake_xlsx", intakeReady],
       ["Intake CSV", "Portable field-by-field intake data", "intake_csv", intakeReady],
-      ["Intelligence PDF", "Full recommendation report with vector charts", "intelligence_pdf", intelligenceReady],
+      ["Intelligence PDF", "Print the complete on-screen Intelligence report and charts", "print_ai", intelligenceReady],
       ["Intelligence Excel", "Recommendation, workplace, risk and infrastructure sheets", "intelligence_xlsx", intelligenceReady],
-      ["Dashboard PDF", "Management KPIs, charts, timeline and RACI", "dashboard_pdf", intelligenceReady],
+      ["Dashboard PDF", "Print the live management dashboard and charts", "print_dashboard", intelligenceReady],
       ["Dashboard Excel", "KPI projections and RACI status workbook", "dashboard_xlsx", intelligenceReady],
       ["RACI Excel", "Formatted published assignment matrix", "raci_xlsx", raciReady],
       ["RACI CSV", "Portable RACI assignment data", "raci_csv", raciReady],
+      [
+        "Execution Plan PDF",
+        "Print phases, Gantt schedule, and handover workflow",
+        "print_exec",
+        permissions.staff || permissions.raciPublished,
+      ],
     ];
     exportActions.forEach(([label, description, type, ready]) => {
       const card = document.createElement("div");
@@ -798,10 +1020,20 @@
         "</div>";
       const button = document.createElement("button");
       button.className = "btn btn-outline btn-sm";
-      button.textContent = ready ? "Generate" : "Unavailable";
+      button.textContent = ready
+        ? type.startsWith("print_")
+          ? "Print / Save PDF"
+          : "Generate"
+        : "Unavailable";
       button.disabled = !ready;
       button.dataset.exportWired = "true";
-      button.addEventListener("click", () => requestExport(type, button));
+      button.addEventListener("click", () => {
+        if (type.startsWith("print_")) {
+          printReport(type.replace("print_", ""));
+        } else {
+          requestExport(type, button);
+        }
+      });
       card.appendChild(text);
       card.appendChild(button);
       actions.appendChild(card);
@@ -1004,16 +1236,24 @@
       rows.forEach((item) => {
         const row = tableBody.insertRow();
         [
-          item.workstream,
-          item.responsible || "—",
-          item.accountable || "—",
-          item.consulted || "—",
-          item.informed || "—",
-          item.due_date || "—",
-          String(item.status || "unassigned").replace("_", " "),
-        ].forEach((value, index) => {
+          [item.workstream, ""],
+          [item.responsible || "—", item.responsible_email || ""],
+          [item.accountable || "—", item.accountable_email || ""],
+          [item.consulted || "—", item.consulted_email || ""],
+          [item.informed || "—", item.informed_email || ""],
+          [item.due_date || "—", ""],
+          [String(item.status || "unassigned").replace("_", " "), ""],
+        ].forEach(([value, email], index) => {
           const cell = row.insertCell();
-          cell.textContent = value;
+          cell.innerHTML =
+            "<div>" +
+            escapeHtml(value) +
+            "</div>" +
+            (email
+              ? '<div class="xs muted" style="margin-top:2px;">' +
+                escapeHtml(email) +
+                "</div>"
+              : "");
           if (index === 0) cell.style.fontWeight = "700";
         });
         row.insertCell().textContent = "";
@@ -1236,6 +1476,10 @@
 
   function openInitialView() {
     const view = context.initialView || "home";
+    if (!permissions.staff && view === "pricing") {
+      window.nav("home");
+      return;
+    }
     if (
       !permissions.staff &&
       ["ai", "dashboard", "export"].includes(view) &&
@@ -1252,6 +1496,18 @@
       window.nav("home");
       return;
     }
+    if (
+      !permissions.staff &&
+      view === "exec" &&
+      !permissions.raciPublished
+    ) {
+      window.nav("home");
+      window.toast(
+        "Execution Plan unlocks automatically when RACI is published.",
+        "info"
+      );
+      return;
+    }
     if (view !== "home") window.nav(view);
   }
 
@@ -1265,6 +1521,7 @@
     renderPersistedRecommendation();
     renderRaci();
     setProjectContext();
+    installNavigationGuard();
     setVisibility();
     wireActions();
     openInitialView();

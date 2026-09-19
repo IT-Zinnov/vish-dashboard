@@ -52,6 +52,11 @@ const sample: ProjectExportData = {
     urgency: "Standard",
     deviceType: "Laptop",
     devices: 525,
+    requiredSpaces: [
+      "Conference Room / Townhall",
+      "Collaboration / Huddle zones",
+      "Server / IT room",
+    ],
   },
   recommendation: {
     methodologyVersion: "deterministic-v1",
@@ -87,18 +92,26 @@ const sample: ProjectExportData = {
     {
       workstream: "Real Estate Strategy",
       responsible: "RE Programme Lead",
+      responsible_email: "re.lead@demo.example",
       accountable: "Executive Sponsor",
+      accountable_email: "sponsor@demo.example",
       consulted: "Design Partner",
+      consulted_email: "design@demo.example",
       informed: "Finance",
+      informed_email: "finance@demo.example",
       due_date: "2026-10-01",
       status: "completed",
     },
     {
       workstream: "IT Infrastructure",
       responsible: "IT Infrastructure Lead",
+      responsible_email: "it.lead@demo.example",
       accountable: "Technology Sponsor",
+      accountable_email: "technology@demo.example",
       consulted: "Security",
+      consulted_email: "security@demo.example",
       informed: "Facilities",
+      informed_email: "facilities@demo.example",
       due_date: "2026-11-01",
       status: "in_progress",
     },
@@ -141,8 +154,18 @@ await verifyWorkbook("Intake", buildIntakeWorkbook, "Fortune 500 E-commerce Comp
 await verifyWorkbook("Intelligence", buildIntelligenceWorkbook, "50000");
 await verifyWorkbook("Dashboard", buildDashboardWorkbook, "IT Infrastructure");
 await verifyWorkbook("RACI", buildRaciWorkbook, "Executive Sponsor");
-assert(intakeCsvRows(sample).length >= 20, "Intake CSV does not contain all fields");
-assert.equal(raciCsvRows(sample).length, sample.raci.length + 1);
+const intakeRows = intakeCsvRows(sample);
+assert(intakeRows.length >= 20, "Intake CSV does not contain all fields");
+assert(
+  intakeRows.flat().includes("Conference Room / Townhall, Collaboration / Huddle zones, Server / IT room"),
+  "Intake export is missing required spaces"
+);
+const raciRows = raciCsvRows(sample);
+assert.equal(raciRows.length, sample.raci.length + 1);
+assert(
+  raciRows.flat().includes("re.lead@demo.example"),
+  "RACI export is missing contact emails"
+);
 await verifyPdf("Intelligence", buildIntelligencePdf);
 await verifyPdf("Dashboard", buildDashboardPdf);
 

@@ -399,6 +399,12 @@ export async function buildIntelligencePdf(data: ProjectExportData) {
     ["Contact", data.intake.contactName],
     ["Contact email", data.intake.contactEmail],
     ["Recommendation generated", data.recommendation.generatedAt],
+    [
+      "Required spaces",
+      data.intake.requiredSpaces?.length
+        ? data.intake.requiredSpaces.join(", ")
+        : "Not captured",
+    ],
   ];
   inputs.forEach(([label, value], index) => {
     const column = index % 2;
@@ -487,8 +493,28 @@ export async function buildDashboardPdf(data: ProjectExportData) {
     const rowY = y - index * 43;
     if (index % 2 === 0) page.drawRectangle({ x: 38, y: rowY - 24, width: 519, height: 36, color: C.soft });
     report.text(page, row.workstream, columns[0], rowY, 8, report.bold, C.ink, 155, 10);
-    report.text(page, row.responsible || "Unassigned", columns[1], rowY, 8, report.regular, C.ink, 122, 10);
-    report.text(page, row.accountable || "Unassigned", columns[2], rowY, 8, report.regular, C.ink, 112, 10);
+    report.text(
+      page,
+      `${row.responsible || "Unassigned"}${row.responsible_email ? ` (${row.responsible_email})` : ""}`,
+      columns[1],
+      rowY,
+      7,
+      report.regular,
+      C.ink,
+      122,
+      9
+    );
+    report.text(
+      page,
+      `${row.accountable || "Unassigned"}${row.accountable_email ? ` (${row.accountable_email})` : ""}`,
+      columns[2],
+      rowY,
+      7,
+      report.regular,
+      C.ink,
+      112,
+      9
+    );
     report.text(page, human(row.status), columns[3], rowY, 8, report.bold, row.status === "completed" ? C.green : C.blue, 80, 10);
   });
 
@@ -513,6 +539,12 @@ export async function buildDashboardPdf(data: ProjectExportData) {
     ["Workspace style", data.intake.workspaceStyle],
     ["Operating hours", data.intake.hours],
     ["Primary function", data.intake.primaryFn],
+    [
+      "Required spaces",
+      data.intake.requiredSpaces?.length
+        ? data.intake.requiredSpaces.join(", ")
+        : "Not captured",
+    ],
   ];
   inputs.forEach(([label, value], index) => {
     report.keyValue(page, label, value, 38 + (index % 2) * 270, y - Math.floor(index / 2) * 52, 245);

@@ -37,9 +37,13 @@ export type RecommendationOutput = {
 export type ExportRaciRow = {
   workstream: string;
   responsible: string | null;
+  responsible_email: string | null;
   accountable: string | null;
+  accountable_email: string | null;
   consulted: string | null;
+  consulted_email: string | null;
   informed: string | null;
+  informed_email: string | null;
   due_date: string | null;
   status: string;
 };

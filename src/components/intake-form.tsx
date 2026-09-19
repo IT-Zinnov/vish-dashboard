@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { saveIntakeAction, submitIntakeAction } from "@/lib/actions";
 import { Field, inputClass } from "@/components/ui";
-import type { IntakePayload } from "@/lib/types";
+import { REQUIRED_SPACES, type IntakePayload } from "@/lib/types";
 
 const STEPS = ["Business", "Office", "Headcount", "Space", "Timeline", "IT", "Review"];
 
@@ -26,6 +26,18 @@ export function IntakeForm({
 
   function set<K extends keyof IntakePayload>(key: K, value: IntakePayload[K]) {
     setData((d) => ({ ...d, [key]: value }));
+  }
+
+  function toggleRequiredSpace(space: string) {
+    setData((current) => {
+      const selected = current.requiredSpaces || [];
+      return {
+        ...current,
+        requiredSpaces: selected.includes(space)
+          ? selected.filter((item) => item !== space)
+          : [...selected, space],
+      };
+    });
   }
 
   async function saveDraft() {
@@ -196,6 +208,27 @@ export function IntakeForm({
               Estimated day-one area:{" "}
               <b>{(((data.hc1 || 0) * (data.density || 80)).toLocaleString("en-IN"))} sq ft</b>
             </p>
+            <div className="sm:col-span-2">
+              <div className="mb-2 text-sm font-medium text-slate-700">
+                Spaces you definitely need
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {REQUIRED_SPACES.map((space) => (
+                  <label
+                    key={space}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={disabled}
+                      checked={(data.requiredSpaces || []).includes(space)}
+                      onChange={() => toggleRequiredSpace(space)}
+                    />
+                    <span>{space}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
           </>
         )}
         {step === 5 && (
@@ -242,6 +275,12 @@ export function IntakeForm({
             <p><b>Org:</b> {data.org || "—"} · <b>Office:</b> {data.officeType || "—"}</p>
             <p><b>Day-one HC:</b> {data.hc1 || 0} · <b>12 mo:</b> {data.hc12 || 0}</p>
             <p><b>Go-live:</b> {data.golive || "—"} · <b>Devices:</b> {data.devices ?? data.hc1 ?? 0}</p>
+            <p>
+              <b>Required spaces:</b>{" "}
+              {data.requiredSpaces?.length
+                ? data.requiredSpaces.join(", ")
+                : "Not captured"}
+            </p>
             {locked && <p className="rounded-lg bg-blue-50 p-3 text-blue-800">Intake is locked. Your team owns assignment and next steps.</p>}
           </div>
         )}
