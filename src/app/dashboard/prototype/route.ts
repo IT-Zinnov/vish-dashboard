@@ -53,6 +53,12 @@ export async function GET(request: NextRequest) {
   ].includes(requestedView || "")
     ? requestedView
     : "home";
+  // Reports open this same document as a top-level tab. Printing an iframe
+  // clips it to the frame box, which is what dropped page content before.
+  const requestedPrint = request.nextUrl.searchParams.get("print");
+  const printView = ["ai", "dashboard", "exec"].includes(requestedPrint || "")
+    ? requestedPrint
+    : null;
   let projectQuery = supabase
     .from("projects")
     .select(
@@ -216,6 +222,7 @@ export async function GET(request: NextRequest) {
     intake: intake?.payload ?? {},
     isDemo,
     initialView,
+    printView,
     recommendation,
     raci: canViewRaci ? projectRaci || [] : [],
     permissions: {

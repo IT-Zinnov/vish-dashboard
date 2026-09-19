@@ -723,14 +723,29 @@
       @media print {
         @page { size: A4 landscape; margin: 9mm; }
         html, body { overflow: visible !important; height: auto !important; background: #fff !important; }
-        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .sidebar, .topnav, .toast-wrap, .rmodal, .lightbox { display: none !important; }
-        .main { margin-left: 0 !important; width: 100% !important; height: auto !important; }
-        .content { padding: 0 !important; overflow: visible !important; height: auto !important; }
+        /* Chrome only prints backgrounds when every painted element opts in,
+           otherwise the report comes out black and white. */
+        *, *::before, *::after {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .sidebar, .topnav, .toast-wrap, .rmodal, .lightbox, .coe-print-bar { display: none !important; }
+        /* .layout is a 100vh flex box with overflow hidden, which is what cut
+           the printed report down to a single clipped screenshot. */
+        .layout { display: block !important; height: auto !important; overflow: visible !important; }
+        .main {
+          display: block !important; margin-left: 0 !important; width: 100% !important;
+          height: auto !important; overflow: visible !important;
+        }
+        .content {
+          padding: 0 !important; overflow: visible !important; height: auto !important;
+          max-height: none !important; width: 1040px !important; margin: 0 auto !important;
+        }
         body.coe-print-mode .pg { display: none !important; }
         body.coe-print-ai #pg-ai,
         body.coe-print-dashboard #pg-dashboard,
-        body.coe-print-exec #pg-exec { display: block !important; }
+        body.coe-print-exec #pg-exec,
+        body.coe-print-mode .pg.coe-print-target { display: block !important; }
         body.coe-print-mode .pg-hd { position: static !important; padding: 0 0 10px !important; }
         body.coe-print-mode .pg-hd .fc-row,
         body.coe-print-mode button,
@@ -762,16 +777,66 @@
         body.coe-print-mode table { break-inside: avoid; page-break-inside: avoid; }
         body.coe-print-mode canvas { max-width: 100% !important; }
       }
+      /* Standalone report tab: the same layout is shown on screen so what the
+         user previews is exactly what lands in the PDF. */
+      html.coe-print-doc-root { height: auto !important; overflow: auto !important; }
+      body.coe-print-doc {
+        background: #e9eef5 !important; overflow: auto !important;
+        height: auto !important; min-height: 0 !important; display: block !important;
+      }
+      body.coe-print-doc .layout { display: block !important; height: auto !important; overflow: visible !important; }
+      body.coe-print-doc .main {
+        display: block !important; overflow: visible !important; max-height: none !important;
+      }
+      body.coe-print-doc .content { overflow-y: visible !important; }
+      body.coe-print-doc .sidebar,
+      body.coe-print-doc .topnav,
+      body.coe-print-doc .toast-wrap,
+      body.coe-print-doc .pg-hd .fc-row,
+      body.coe-print-doc .tabs,
+      body.coe-print-doc .pg-body button,
+      body.coe-print-doc .pg-hd button { display: none !important; }
+      body.coe-print-doc .main { margin-left: 0 !important; width: 100% !important; height: auto !important; }
+      body.coe-print-doc .content {
+        width: 1040px !important; margin: 0 auto !important; padding: 18px 0 60px !important;
+        height: auto !important; max-height: none !important; overflow: visible !important;
+      }
+      body.coe-print-doc .pg { display: none !important; }
+      body.coe-print-doc .pg.coe-print-target { display: block !important; }
+      body.coe-print-doc .pg-hd { position: static !important; }
+      body.coe-print-doc .pg-body { height: auto !important; max-height: none !important; overflow: visible !important; }
+      body.coe-print-doc .coe-print-meta {
+        display: block !important; margin: 0 0 14px; padding: 10px 13px; background: #fff;
+        border: 1px solid #d9e2f0; border-left: 4px solid #1255cc; border-radius: 6px;
+        font-size: 11px; color: #334155;
+      }
+      body.coe-print-doc .ai-panel,
+      body.coe-print-doc .exec-tab-panel { display: block !important; visibility: visible !important; }
+      body.coe-print-doc [data-print-title]::before {
+        content: attr(data-print-title); display: block; margin: 16px 0 10px;
+        padding: 8px 11px; background: #0a1628; color: #fff; border-radius: 5px;
+        font-size: 13px; font-weight: 700;
+      }
+      .coe-print-bar {
+        position: sticky; top: 0; z-index: 90; display: flex; gap: 12px; align-items: center;
+        justify-content: space-between; padding: 10px 16px; background: #0a1628; color: #fff;
+        font-size: 12px;
+      }
+      .coe-print-bar button {
+        display: inline-block !important; padding: 7px 16px; border: 0; border-radius: 6px;
+        background: #1255cc; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer;
+      }
     `;
     document.head.appendChild(style);
   }
 
   function resizeChartsForPrint() {
-    const instances = window.Chart?.instances
-      ? Object.values(window.Chart.instances)
-      : [];
-    instances.forEach((chart) => {
+    const getChart = window.Chart?.getChart;
+    if (typeof getChart !== "function") return;
+    document.querySelectorAll("canvas").forEach((canvas) => {
       try {
+        const chart = getChart.call(window.Chart, canvas);
+        if (!chart) return;
         chart.resize();
         chart.update("none");
       } catch {
@@ -780,11 +845,7 @@
     });
   }
 
-  function printReport(view) {
-    if (!project) {
-      window.toast("Select a project before printing a report.", "err");
-      return;
-    }
+  function preparePrintContent(view) {
     installPrintStyles();
     window.nav(view);
     const panelTitles =
@@ -831,16 +892,76 @@
         );
       body.prepend(meta);
     }
+    page?.classList.add("coe-print-target");
     document.body.classList.add("coe-print-mode", "coe-print-" + view);
-    const cleanup = () => {
-      document.body.classList.remove("coe-print-mode", "coe-print-" + view);
+  }
+
+  const REPORT_TITLES = {
+    ai: "Zinnov Intelligence Report",
+    dashboard: "GCC Dashboard Report",
+    exec: "Execution Plan Report",
+  };
+
+  function installPrintToolbar(view) {
+    if (document.querySelector(".coe-print-bar")) return;
+    const bar = document.createElement("div");
+    bar.className = "coe-print-bar";
+    const label = document.createElement("div");
+    label.innerHTML =
+      "<b>" +
+      escapeHtml(REPORT_TITLES[view] || "Report") +
+      "</b> · Use <b>Save as PDF</b> and keep <b>Background graphics</b> ticked so colours are preserved.";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Save as PDF";
+    button.addEventListener("click", () => {
       resizeChartsForPrint();
-    };
-    window.addEventListener("afterprint", cleanup, { once: true });
+      window.setTimeout(() => window.print(), 120);
+    });
+    bar.append(label, button);
+    document.body.prepend(bar);
+  }
+
+  // Runs in the standalone report tab opened by printReport().
+  function enterPrintDocumentMode(view) {
+    installPrintStyles();
+    document.documentElement.classList.add("coe-print-doc-root");
+    document.body.classList.add("coe-print-doc");
+    document.title =
+      (REPORT_TITLES[view] || "Report") +
+      " — " +
+      (project?.name || context.tenant?.name || "Zinnov");
+    preparePrintContent(view);
+    installPrintToolbar(view);
     window.setTimeout(() => {
       resizeChartsForPrint();
-      window.setTimeout(() => window.print(), 250);
-    }, 150);
+      window.setTimeout(() => {
+        resizeChartsForPrint();
+        window.print();
+      }, 600);
+    }, 400);
+  }
+
+  function printReport(view) {
+    if (!project) {
+      window.toast("Select a project before printing a report.", "err");
+      return;
+    }
+    // Printing from inside the embedded frame clips the report to the frame
+    // box, so the report is rendered as its own top-level document instead.
+    const url =
+      "/dashboard/prototype?project=" +
+      encodeURIComponent(project.id) +
+      "&view=" +
+      encodeURIComponent(view) +
+      "&print=" +
+      encodeURIComponent(view);
+    const opened = window.open(url, "_blank", "noopener");
+    if (!opened) {
+      window.toast("Allow pop-ups for this site to download the report.", "err");
+      return;
+    }
+    window.toast("Opening the full report in a new tab…", "ok");
   }
 
   function bindPrintButton(scope, pattern, view) {
@@ -1524,6 +1645,11 @@
     installNavigationGuard();
     setVisibility();
     wireActions();
+    const printView = context.printView;
+    if (printView) {
+      enterPrintDocumentMode(printView);
+      return;
+    }
     openInitialView();
   });
 })();

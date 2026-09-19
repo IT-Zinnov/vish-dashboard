@@ -48,6 +48,17 @@ assert(
   "One or more UI print modes are missing"
 );
 assert(
+  bridge.includes("coe-print-doc") &&
+    bridge.includes("&print=") &&
+    bridge.includes("window.open("),
+  "Reports must render as a standalone tab, not inside the embedded frame"
+);
+assert(
+  bridge.includes(".layout { display: block !important") &&
+    bridge.includes("print-color-adjust: exact !important"),
+  "Print CSS must unclip the 100vh layout and force colour output"
+);
+assert(
   bridge.includes('view === "pricing"') &&
     migration.includes("public.is_team_member()"),
   "Client pricing access is not blocked in UI and RLS"
