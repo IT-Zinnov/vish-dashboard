@@ -32,8 +32,8 @@ assert(
   "Legacy execution approval button is still present"
 );
 assert(
-  actions.includes("inviteUserByEmail"),
-  "Client invitation email is not wired"
+  actions.includes("signupUrl") && !actions.includes("inviteUserByEmail"),
+  "Invites must share the dashboard signup link instead of a Supabase invitation"
 );
 assert(
   intakeApi.includes('"requiredSpaces"') &&

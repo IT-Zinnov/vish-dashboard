@@ -56,91 +56,55 @@ export async function inviteUserAction(formData: FormData) {
     return { error: "Pick a client company for this invite." };
   }
 
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch (adminError) {
-    return {
-      error:
-        adminError instanceof Error
-          ? adminError.message
-          : "The invitation service is not configured.",
-    };
-  }
-  const { data: existingProfile } = await admin
-    .from("profiles")
-    .select("id")
-    .ilike("email", email)
-    .maybeSingle();
-  if (existingProfile) {
-    return {
-      error:
-        "This email already has an account. Use “Attach a user who already signed up” instead.",
-    };
-  }
-
-  const { data: invite, error } = await supabase.from("invites").insert({
-    email,
-    role,
-    tenant_id: role.startsWith("client") ? tenantId : null,
-    invited_by: user!.id,
-  }).select("id").single();
-  if (error) return { error: error.message };
+  const requestHeaders = await headers();
+  const signupUrl = `${(
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    requestHeaders.get("origin") ||
+    "http://localhost:3000"
+  ).replace(/\/$/, "")}/login`;
 
   try {
-    const requestHeaders = await headers();
-    const siteUrl = (
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      requestHeaders.get("origin") ||
-      "http://localhost:3000"
-    ).replace(/\/$/, "");
-    const { error: deliveryError } = await admin.auth.admin.inviteUserByEmail(
-      email,
-      {
-        // Supabase's default invite template may return tokens in the URL hash.
-        // Landing on a browser page preserves that hash so createBrowserClient
-        // can establish the session. The callback route remains available for
-        // PKCE/code-based templates.
-        redirectTo: `${siteUrl}/auth/accept-invite`,
-        data: {
-          invited_role: role,
-          invited_tenant_id: role.startsWith("client") ? tenantId : null,
-        },
-      }
-    );
-    if (deliveryError) {
-      const { data: createdProfile } = await admin
-        .from("profiles")
-        .select("id")
-        .ilike("email", email)
-        .maybeSingle();
-      if (createdProfile) {
-        await admin.auth.admin.deleteUser(createdProfile.id);
-      }
-      await admin.from("invites").delete().eq("id", invite.id);
-      return { error: `Invite email was not sent: ${deliveryError.message}` };
-    }
-  } catch (deliveryError) {
-    const { data: createdProfile } = await admin
+    const admin = createAdminClient();
+    const { data: existingProfile } = await admin
       .from("profiles")
       .select("id")
       .ilike("email", email)
       .maybeSingle();
-    if (createdProfile) {
-      await admin.auth.admin.deleteUser(createdProfile.id);
+    if (existingProfile) {
+      const { data: authUser } = await admin.auth.admin.getUserById(
+        existingProfile.id
+      );
+      if (authUser.user?.last_sign_in_at) {
+        return {
+          error:
+            "This email already has an account. Use “Attach a user who already signed up” instead.",
+        };
+      }
+      // An older invite created a login that was never finished. Remove it so
+      // the person can sign up normally on the dashboard.
+      await admin.auth.admin.deleteUser(existingProfile.id);
     }
-    await admin.from("invites").delete().eq("id", invite.id);
-    return {
-      error:
-        deliveryError instanceof Error
-          ? deliveryError.message
-          : "Invite email could not be sent.",
-    };
+  } catch {
+    // The invite record below is enough for signup to pick up the client.
   }
+
+  await supabase
+    .from("invites")
+    .delete()
+    .is("accepted_at", null)
+    .ilike("email", email);
+
+  const { error } = await supabase.from("invites").insert({
+    email,
+    role,
+    tenant_id: role.startsWith("client") ? tenantId : null,
+    invited_by: user!.id,
+  });
+  if (error) return { error: error.message };
 
   revalidatePath("/master");
   if (tenantId) revalidatePath(`/master/tenants/${tenantId}`);
-  return { ok: true, delivered: true };
+  return { ok: true, signupUrl };
 }
 
 export async function assignUserAction(formData: FormData) {
@@ -151,7 +115,10 @@ export async function assignUserAction(formData: FormData) {
 
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const role = String(formData.get("role") || "client_contributor");
-  const tenantId = String(formData.get("tenant_id") || "") || null;
+  const tenantId =
+    role === "platform_admin" || role === "team"
+      ? null
+      : String(formData.get("tenant_id") || "") || null;
 
   if (!email) return { error: "Email is required." };
   if (role.startsWith("client") && !tenantId) {

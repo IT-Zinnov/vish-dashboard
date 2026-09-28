@@ -32,16 +32,21 @@ export function CreateTenantForm() {
 
 export function InviteForm({ tenants }: { tenants: Tenant[] }) {
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState(false);
+  const [signupUrl, setSignupUrl] = useState<string | null>(null);
+  const [invitedEmail, setInvitedEmail] = useState("");
   return (
     <form
       className="grid gap-3 sm:grid-cols-4"
       action={async (fd) => {
         setError(null);
-        setOk(false);
+        setSignupUrl(null);
+        const email = String(fd.get("email") || "").trim();
         const res = await inviteUserAction(fd);
         if (res && "error" in res && res.error) setError(res.error);
-        else setOk(true);
+        else if (res && "signupUrl" in res && res.signupUrl) {
+          setInvitedEmail(email);
+          setSignupUrl(res.signupUrl);
+        }
       }}
     >
       <Field label="Email">
@@ -52,6 +57,7 @@ export function InviteForm({ tenants }: { tenants: Tenant[] }) {
           <option value="client_contributor">Client — fill intake</option>
           <option value="client_viewer">Client — view only</option>
           <option value="team">Internal team</option>
+          <option value="platform_admin">Platform admin</option>
         </select>
       </Field>
       <Field label="Client company">
@@ -68,11 +74,21 @@ export function InviteForm({ tenants }: { tenants: Tenant[] }) {
         <button className="h-[38px] rounded-lg bg-navy px-4 text-sm font-semibold text-white">Invite</button>
       </div>
       {error && <p className="sm:col-span-4 text-xs text-red-600">{error}</p>}
-      {ok && (
-        <p className="sm:col-span-4 text-xs text-green-700">
-          Invitation email sent. The recipient can open the secure link, set a
-          password, and enter the assigned client dashboard directly.
-        </p>
+      {signupUrl && (
+        <div className="sm:col-span-4 text-xs text-green-800">
+          <p>
+            Saved. Send {invitedEmail || "them"} this link. They sign up on
+            that page with the same email, and the client role is applied
+            automatically.
+          </p>
+          <p className="mt-1 font-medium">{signupUrl}</p>
+          <a
+            className="mt-2 inline-block font-semibold text-brand underline"
+            href={`mailto:${encodeURIComponent(invitedEmail)}?subject=${encodeURIComponent("Zinnov Dashboard")}&body=${encodeURIComponent(`Sign up for the Zinnov Dashboard with this email address:\n\n${signupUrl}\n`)}`}
+          >
+            Email this dashboard link
+          </a>
+        </div>
       )}
     </form>
   );
@@ -105,6 +121,7 @@ export function AssignUserForm({ tenants }: { tenants: Tenant[] }) {
           <option value="client_contributor">Client — fill intake</option>
           <option value="client_viewer">Client — view only</option>
           <option value="team">Internal team</option>
+          <option value="platform_admin">Platform admin</option>
         </select>
       </Field>
       <Field label="Client company">
