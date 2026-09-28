@@ -16,31 +16,82 @@ export default function AcceptInvitePage() {
     const supabase = createClient();
     async function loadInvite() {
       const params = new URLSearchParams(window.location.search);
-      if (params.get("error")) {
-        setError(
-          "This invitation link is invalid or expired. Ask the platform admin to send a new invitation."
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const hashError = hash.get("error_description") || hash.get("error");
+      const queryError = params.get("error_description") || params.get("error");
+      if (hashError || queryError) {
+        const detail = decodeURIComponent(
+          String(hashError || queryError).replace(/\+/g, " ")
         );
-      }
-      const code = params.get("code");
-      if (code) {
-        const { error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) setError(exchangeError.message);
-      } else {
-        // This also lets the browser client consume the default invite URL's
-        // access-token hash before getUser verifies the session.
-        await supabase.auth.getSession();
-      }
-      const { data, error: userError } = await supabase.auth.getUser();
-      if (userError || !data.user) {
         setError(
-          "No invitation session was found. Open the newest invitation link from your email."
+          /expired|invalid|already/i.test(detail)
+            ? "This invitation link was already used or has expired. Ask the platform admin to send a new invitation, then open that newest email."
+            : detail
         );
         setReady(true);
         return;
       }
-      setEmail(data.user.email || "");
-      setName(String(data.user.user_metadata?.full_name || ""));
+
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+      let userEmail = "";
+      let fullName = "";
+
+      if (accessToken && refreshToken) {
+        const { data, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (sessionError) {
+          setError(sessionError.message);
+          setReady(true);
+          return;
+        }
+        userEmail = data.session?.user.email || "";
+        fullName = String(data.session?.user.user_metadata?.full_name || "");
+        window.history.replaceState(null, "", window.location.pathname);
+      } else {
+        const tokenHash = params.get("token_hash");
+        const type = params.get("type");
+        const code = params.get("code");
+        if (tokenHash && type) {
+          const { data, error: verifyError } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: type as "invite",
+          });
+          if (verifyError) {
+            setError(verifyError.message);
+            setReady(true);
+            return;
+          }
+          userEmail = data.user?.email || "";
+          fullName = String(data.user?.user_metadata?.full_name || "");
+        } else if (code) {
+          const { error: exchangeError } =
+            await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) {
+            setError(exchangeError.message);
+            setReady(true);
+            return;
+          }
+        }
+      }
+
+      if (!userEmail) {
+        const { data } = await supabase.auth.getUser();
+        userEmail = data.user?.email || "";
+        fullName = String(data.user?.user_metadata?.full_name || "");
+      }
+
+      if (!userEmail) {
+        setError(
+          "This invitation link did not sign you in. Open the Accept invitation button in the newest email, and allow the page to finish loading. If it still fails, ask the platform admin to send a new invitation."
+        );
+        setReady(true);
+        return;
+      }
+      setEmail(userEmail);
+      setName(fullName);
       setReady(true);
     }
     loadInvite();
