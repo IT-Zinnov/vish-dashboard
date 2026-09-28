@@ -1,7 +1,11 @@
 import { requireStaff } from "@/lib/auth";
 import { AppShell, Card, StatusBadge } from "@/components/ui";
 import { AssignUserForm, CreateTenantForm, InviteForm } from "@/components/admin-forms";
-import { RevokeAccessButton } from "@/components/danger-actions";
+import {
+  DeleteProjectButton,
+  DeleteTenantButton,
+  RevokeAccessButton,
+} from "@/components/danger-actions";
 
 export default async function MasterHome() {
   const { supabase, profile } = await requireStaff();
@@ -85,12 +89,19 @@ export default async function MasterHome() {
           </Card>
         )}
         <Card title="Clients">
+          {profile?.role !== "platform_admin" && (
+            <p className="mb-3 text-sm text-amber-700">
+              Delete client and delete project are shown only for a platform
+              admin. This account is{" "}
+              {profile?.role?.replaceAll("_", " ") || "not assigned a role"}.
+            </p>
+          )}
           {!tenants?.length ? (
             <p className="text-sm text-slate-500">No clients yet. Onboard the first company above.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {tenants.map((t) => (
-                <li key={t.id} className="flex items-center py-3">
+                <li key={t.id} className="flex items-center gap-3 py-3">
                   <div>
                     <a className="font-medium text-brand hover:underline" href={`/master/tenants/${t.id}`}>
                       {t.name}
@@ -103,6 +114,9 @@ export default async function MasterHome() {
                     <div className="text-xs text-slate-500">{t.slug}</div>
                   </div>
                   <span className="ml-auto text-xs capitalize text-slate-400">{t.status}</span>
+                  {profile?.role === "platform_admin" && (
+                    <DeleteTenantButton tenantId={t.id} tenantName={t.name} />
+                  )}
                 </li>
               ))}
             </ul>
@@ -118,6 +132,9 @@ export default async function MasterHome() {
                   <th className="pb-2">Project</th>
                   <th className="pb-2">Client</th>
                   <th className="pb-2">Status</th>
+                  {profile?.role === "platform_admin" && (
+                    <th className="pb-2 text-right">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -139,6 +156,11 @@ export default async function MasterHome() {
                     <td className="py-2">
                       <StatusBadge status={p.status} />
                     </td>
+                    {profile?.role === "platform_admin" && (
+                      <td className="py-2 text-right">
+                        <DeleteProjectButton projectId={p.id} projectName={p.name} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
