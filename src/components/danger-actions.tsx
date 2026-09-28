@@ -29,7 +29,18 @@ function DangerButton({
           if (!window.confirm(confirmation)) return;
           setPending(true);
           setError(null);
-          const result = await run();
+          let result: { error?: string; redirectTo?: string };
+          try {
+            result = await run();
+          } catch (actionError) {
+            setError(
+              actionError instanceof Error
+                ? actionError.message
+                : "Delete failed before the database could be updated."
+            );
+            setPending(false);
+            return;
+          }
           if (result.error) {
             setError(result.error);
             setPending(false);

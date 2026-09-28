@@ -200,20 +200,24 @@ export async function assignUserAction(formData: FormData) {
   return { outcome: (data as { outcome?: string } | null)?.outcome ?? "done" };
 }
 
-async function removeStoredExports(
-  admin: ReturnType<typeof createAdminClient>,
-  filter: { projectId?: string; tenantId?: string }
-) {
-  let query = admin.from("exports").select("storage_path");
-  if (filter.projectId) query = query.eq("project_id", filter.projectId);
-  if (filter.tenantId) query = query.eq("tenant_id", filter.tenantId);
-  const { data } = await query;
-  const paths = (data || [])
-    .map((item) => item.storage_path)
-    .filter((value): value is string => Boolean(value));
-  if (paths.length) {
-    const { error } = await admin.storage.from("project-exports").remove(paths);
-    if (error) throw error;
+async function removeStoredExports(filter: {
+  projectId?: string;
+  tenantId?: string;
+}) {
+  try {
+    const admin = createAdminClient();
+    let query = admin.from("exports").select("storage_path");
+    if (filter.projectId) query = query.eq("project_id", filter.projectId);
+    if (filter.tenantId) query = query.eq("tenant_id", filter.tenantId);
+    const { data } = await query;
+    const paths = (data || [])
+      .map((item) => item.storage_path)
+      .filter((value): value is string => Boolean(value));
+    if (paths.length) {
+      await admin.storage.from("project-exports").remove(paths);
+    }
+  } catch {
+    // Missing export files must not block deleting the project or client.
   }
 }
 
@@ -267,92 +271,121 @@ export async function revokeUserAccessAction(profileId: string) {
 }
 
 export async function deleteProjectAction(projectId: string) {
-  const { profile, user } = await requireStaff();
+  const { supabase, profile, user } = await requireStaff();
   if (profile?.role !== "platform_admin") {
-    return { error: "Only the platform admin can delete projects." };
+    return {
+      error: `Only the platform admin can delete projects. This login is ${profile?.role || "missing a role"}.`,
+    };
   }
 
-  const admin = createAdminClient();
-  const { data: project } = await admin
+  const { data: project, error: lookupError } = await supabase
     .from("projects")
     .select("id, tenant_id, name")
     .eq("id", projectId)
     .maybeSingle();
+  if (lookupError) return { error: lookupError.message };
   if (!project) return { error: "Project was not found." };
 
+  await removeStoredExports({ projectId });
+
+  let admin;
   try {
-    await removeStoredExports(admin, { projectId });
-  } catch (storageError) {
+    admin = createAdminClient();
+  } catch (adminError) {
     return {
       error:
-        storageError instanceof Error
-          ? storageError.message
-          : "Unable to remove project exports.",
+        adminError instanceof Error
+          ? adminError.message
+          : "The server is missing its Supabase admin key.",
     };
   }
 
-  const { error } = await admin.from("projects").delete().eq("id", projectId);
+  const { data: deleted, error } = await admin
+    .from("projects")
+    .delete()
+    .eq("id", projectId)
+    .select("id");
   if (error) return { error: error.message };
+  if (!deleted?.length) {
+    const { data: deletedAsAdmin, error: sessionError } = await supabase
+      .from("projects")
+      .delete()
+      .eq("id", projectId)
+      .select("id");
+    if (sessionError) return { error: sessionError.message };
+    if (!deletedAsAdmin?.length) {
+      return {
+        error:
+          "The database refused to delete this project. Run supabase/migrations/011_admin_delete.sql in the Supabase SQL Editor, and confirm SUPABASE_SERVICE_ROLE_KEY is set in Vercel.",
+      };
+    }
+  }
+
   await admin.from("activity_log").insert({
     tenant_id: project.tenant_id,
     project_id: null,
     actor_id: user!.id,
     event_type: "project.deleted",
     summary: `Project deleted: ${project.name}`,
-  });
+  }).then(() => undefined, () => undefined);
 
   revalidatePath("/master");
   revalidatePath(`/master/tenants/${project.tenant_id}`);
-  return { ok: true, redirectTo: `/master/tenants/${project.tenant_id}` };
+  return { ok: true, redirectTo: "/master" };
 }
 
 export async function deleteTenantAction(tenantId: string) {
-  const { profile, user } = await requireStaff();
+  const { supabase, profile, user } = await requireStaff();
   if (profile?.role !== "platform_admin") {
     return { error: "Only the platform admin can delete clients." };
   }
 
-  const admin = createAdminClient();
-  const { data: tenant } = await admin
+  const { data: tenant, error: lookupError } = await supabase
     .from("tenants")
     .select("id, name")
     .eq("id", tenantId)
     .maybeSingle();
+  if (lookupError) return { error: lookupError.message };
   if (!tenant) return { error: "Client was not found." };
 
+  await removeStoredExports({ tenantId });
+
+  let admin;
   try {
-    await removeStoredExports(admin, { tenantId });
-  } catch (storageError) {
+    admin = createAdminClient();
+  } catch (adminError) {
     return {
       error:
-        storageError instanceof Error
-          ? storageError.message
-          : "Unable to remove client exports.",
+        adminError instanceof Error
+          ? adminError.message
+          : "The server is missing its Supabase admin key.",
     };
   }
 
   const { data: members } = await admin
     .from("profiles")
-    .select("id")
+    .select("id, role")
     .eq("tenant_id", tenantId);
-  const memberIds = (members || []).map((member) => member.id);
-  if (memberIds.length) {
-    for (const memberId of memberIds) {
-      if (memberId === user!.id) {
-        return {
-          error: "A platform admin attached to this client cannot delete their own account.",
-        };
-      }
-      const { error: deleteUserError } =
-        await admin.auth.admin.deleteUser(memberId);
-      if (deleteUserError) {
-        return { error: deleteUserError.message };
-      }
-    }
+  const memberIds = (members || [])
+    .filter((member) => member.role !== "platform_admin" && member.id !== user!.id)
+    .map((member) => member.id);
+
+  const { data: deleted, error } = await admin
+    .from("tenants")
+    .delete()
+    .eq("id", tenantId)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!deleted?.length) {
+    return {
+      error:
+        "The database refused to delete this client. Confirm SUPABASE_SERVICE_ROLE_KEY is set in Vercel, then redeploy.",
+    };
   }
 
-  const { error } = await admin.from("tenants").delete().eq("id", tenantId);
-  if (error) return { error: error.message };
+  for (const memberId of memberIds) {
+    await admin.auth.admin.deleteUser(memberId);
+  }
   revalidatePath("/master");
   return { ok: true, redirectTo: "/master" };
 }
