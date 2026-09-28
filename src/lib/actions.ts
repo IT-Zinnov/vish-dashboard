@@ -102,9 +102,47 @@ export async function inviteUserAction(formData: FormData) {
   });
   if (error) return { error: error.message };
 
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (adminError) {
+    await supabase.from("invites").delete().is("accepted_at", null).ilike("email", email);
+    return {
+      error:
+        adminError instanceof Error
+          ? adminError.message
+          : "The email service is not configured.",
+    };
+  }
+
+  const { data: invited, error: deliveryError } =
+    await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: signupUrl,
+      data: { signup_url: signupUrl },
+    });
+  if (deliveryError) {
+    await supabase.from("invites").delete().is("accepted_at", null).ilike("email", email);
+    return { error: `The email was not sent: ${deliveryError.message}` };
+  }
+
+  // Supabase's invite mail creates a login before the person chooses a
+  // password. Remove that unfinished login so they can sign up on the
+  // dashboard link, then keep the client assignment waiting for that signup.
+  if (invited.user?.id && !invited.user.last_sign_in_at) {
+    await admin.auth.admin.deleteUser(invited.user.id);
+  }
+  await supabase.from("invites").delete().ilike("email", email);
+  const { error: restoreError } = await supabase.from("invites").insert({
+    email,
+    role,
+    tenant_id: role.startsWith("client") ? tenantId : null,
+    invited_by: user!.id,
+  });
+  if (restoreError) return { error: restoreError.message };
+
   revalidatePath("/master");
   if (tenantId) revalidatePath(`/master/tenants/${tenantId}`);
-  return { ok: true, signupUrl };
+  return { ok: true, signupUrl, sentTo: email };
 }
 
 export async function assignUserAction(formData: FormData) {

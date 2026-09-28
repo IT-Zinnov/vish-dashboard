@@ -43,9 +43,11 @@ export function InviteForm({ tenants }: { tenants: Tenant[] }) {
         const email = String(fd.get("email") || "").trim();
         const res = await inviteUserAction(fd);
         if (res && "error" in res && res.error) setError(res.error);
-        else if (res && "signupUrl" in res && res.signupUrl) {
-          setInvitedEmail(email);
-          setSignupUrl(res.signupUrl);
+        else if (res && "sentTo" in res && res.sentTo) {
+          setInvitedEmail(res.sentTo);
+          setSignupUrl(
+            res && "signupUrl" in res && res.signupUrl ? res.signupUrl : null
+          );
         }
       }}
     >
@@ -75,20 +77,9 @@ export function InviteForm({ tenants }: { tenants: Tenant[] }) {
       </div>
       {error && <p className="sm:col-span-4 text-xs text-red-600">{error}</p>}
       {signupUrl && (
-        <div className="sm:col-span-4 text-xs text-green-800">
-          <p>
-            Saved. Send {invitedEmail || "them"} this link. They sign up on
-            that page with the same email, and the client role is applied
-            automatically.
-          </p>
-          <p className="mt-1 font-medium">{signupUrl}</p>
-          <a
-            className="mt-2 inline-block font-semibold text-brand underline"
-            href={`mailto:${encodeURIComponent(invitedEmail)}?subject=${encodeURIComponent("Zinnov Dashboard")}&body=${encodeURIComponent(`Sign up for the Zinnov Dashboard with this email address:\n\n${signupUrl}\n`)}`}
-          >
-            Email this dashboard link
-          </a>
-        </div>
+        <p className="sm:col-span-4 text-xs text-green-800">
+          Email sent to {invitedEmail}. It contains the signup page: {signupUrl}
+        </p>
       )}
     </form>
   );
